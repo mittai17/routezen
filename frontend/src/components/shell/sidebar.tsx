@@ -64,10 +64,14 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+import { Suspense } from "react";
+
 export function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[220px] lg:block" aria-label="Sidebar">
-      <SidebarContent />
+      <Suspense fallback={<div className="h-full bg-sidebar" />}>
+        <SidebarContent />
+      </Suspense>
     </aside>
   );
 }

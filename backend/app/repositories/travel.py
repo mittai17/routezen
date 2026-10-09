@@ -66,6 +66,32 @@ class TravelRepository:
                     cp_dict["sequence"] = idx
                 cp_obj = TravelCheckpoint(trip_id=trip.id, **cp_dict)
                 self.s.add(cp_obj)
+        else:
+            if trip.origin_lat or trip.origin_lng or trip.destination_lat or trip.destination_lng:
+                self.s.add(
+                    TravelCheckpoint(
+                        trip_id=trip.id,
+                        sequence=0,
+                        name=trip.origin_name,
+                        lat=trip.origin_lat,
+                        lng=trip.origin_lng,
+                        type="origin",
+                        is_mandatory=True,
+                        stay_overnight=False,
+                    )
+                )
+                self.s.add(
+                    TravelCheckpoint(
+                        trip_id=trip.id,
+                        sequence=1,
+                        name=trip.destination_name,
+                        lat=trip.destination_lat,
+                        lng=trip.destination_lng,
+                        type="destination",
+                        is_mandatory=True,
+                        stay_overnight=False,
+                    )
+                )
 
         self.s.commit()
         self.s.refresh(trip)

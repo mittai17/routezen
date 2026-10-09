@@ -1,11 +1,10 @@
 "use client";
-export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, CheckCircle, Clock, MapPin, Fuel, Info } from "lucide-react";
 import dynamic from "next/dynamic";
-import { generateRouteOptions, type RouteOption } from "@/lib/api/travel";
+import { generateRouteOptions, listCheckpoints, type RouteOption } from "@/lib/api/travel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,7 +65,7 @@ function RouteCard({
         </div>
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Est. days</span>
-          <span className="font-semibold">{option.estimated_days}–{option.estimated_days + 2} days</span>
+          <span className="font-semibold">{option.estimated_days}–{option.estimated_days + 1} days</span>
         </div>
         <div className="flex flex-col">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Est. fuel</span>
@@ -107,6 +106,11 @@ export default function RouteOptionsPage() {
   } = useQuery({
     queryKey: ["travel-routes", id],
     queryFn: () => generateRouteOptions(id),
+  });
+
+  const { data: checkpoints = [] } = useQuery({
+    queryKey: ["travel-checkpoints", id],
+    queryFn: () => listCheckpoints(id),
   });
 
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -176,7 +180,7 @@ export default function RouteOptionsPage() {
           <div className="lg:col-span-3">
             <Card className="overflow-hidden">
               <div className="h-[480px]">
-                <TravelRouteMap routes={mapRoutes} />
+                <TravelRouteMap routes={mapRoutes} checkpoints={checkpoints} />
               </div>
               {selected && (
                 <CardContent className="border-t border-border py-3">

@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Stepper } from "@/components/ui/stepper";
 import { TravelWizardProvider, useTravelWizard } from "@/components/smart-travel/travel-wizard-context";
-import { TripSetupStep } from "@/components/smart-travel/step-trip-setup";
+import { TripSetupStep, POPULAR_CITIES } from "@/components/smart-travel/step-trip-setup";
 import { TravelPreferencesStep } from "@/components/smart-travel/step-preferences";
 import { VehicleLogisticsStep } from "@/components/smart-travel/step-vehicle";
 import { PrioritiesConstraintsStep } from "@/components/smart-travel/step-priorities";
@@ -27,14 +27,48 @@ function WizardInner() {
     setSaving(true);
     setError(null);
     try {
+      let oLat = data.originLat;
+      let oLng = data.originLng;
+      if (!oLat || !oLng) {
+        const norm = (data.originName ?? "").toLowerCase();
+        for (const [k, v] of Object.entries(POPULAR_CITIES)) {
+          if (norm.includes(k)) {
+            oLat = v.lat;
+            oLng = v.lng;
+            break;
+          }
+        }
+      }
+      if (!oLat || !oLng) {
+        oLat = 12.9716;
+        oLng = 77.5946;
+      }
+
+      let dLat = data.destLat;
+      let dLng = data.destLng;
+      if (!dLat || !dLng) {
+        const norm = (data.destName ?? "").toLowerCase();
+        for (const [k, v] of Object.entries(POPULAR_CITIES)) {
+          if (norm.includes(k)) {
+            dLat = v.lat;
+            dLng = v.lng;
+            break;
+          }
+        }
+      }
+      if (!dLat || !dLng) {
+        dLat = 15.2993;
+        dLng = 74.1240;
+      }
+
       const trip = await createTrip({
         name: data.name || `Trip to ${data.destName}`,
         origin_name: data.originName!,
-        origin_lat: data.originLat ?? 0,
-        origin_lng: data.originLng ?? 0,
+        origin_lat: oLat,
+        origin_lng: oLng,
         destination_name: data.destName!,
-        destination_lat: data.destLat ?? 0,
-        destination_lng: data.destLng ?? 0,
+        destination_lat: dLat,
+        destination_lng: dLng,
         departure_date: data.departureDate ?? null,
         return_date: data.returnDate ?? null,
         is_one_way: data.isOneWay ?? true,

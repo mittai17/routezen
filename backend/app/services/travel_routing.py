@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any
 from app.core.config import get_settings
+from app.schemas.common import Coordinate
 from app.services.routing import OSRMClient
 
 
@@ -33,46 +34,82 @@ class TravelRoutingService:
     ) -> list[dict[str, Any]]:
         """
         Generates 3 distinct route alternatives:
-        1. Recommended (balanced scenic + safety corridor)
-        2. Fastest (NH arterial highways, minimum stops)
-        3. Scenic (cultural waypoints + mountain passes)
+        1. Recommended (balanced scenic + safety corridor with actual road geometry)
+        2. Fastest (express highway / NH arterial focus)
+        3. Scenic (cultural waypoints + hill corridor)
         """
-        # Calculate base corridor distance
-        points = [origin] + [(cp["lat"], cp["lng"]) for cp in checkpoints] + [destination]
-        
-        # Approximate road distance (1.25x haversine road curvature factor for Indian highways)
-        direct_dist = 0.0
-        for i in range(len(points) - 1):
-            direct_dist += haversine_km(points[i][0], points[i][1], points[i+1][0], points[i+1][1]) * 1.25
+        # Filter intermediate checkpoints so origin & destination are not duplicated
+        intermediate_cps = [
+            cp for cp in checkpoints
+            if cp.get("type") not in ("origin", "destination")
+        ]
+        points = [origin] + [(cp["lat"], cp["lng"]) for cp in intermediate_cps] + [destination]
 
-        base_km = max(50.0, round(direct_dist, 1))
+        # 1. Recommended Route — query real OSRM road geometry
+        rec_geom: list[list[float]] = []
+        rec_km = 0.0
+        rec_duration_min = 0.0
+        osrm_ok = False
 
-        # 1. Recommended Route
-        rec_km = round(base_km, 1)
-        rec_duration_min = round(rec_km / 65.0 * 60.0)  # avg 65 km/h highway speed
-        rec_days = max(1, math.ceil(rec_km / 350.0))
+        try:
+            coords = [Coordinate(lat=p[0], lng=p[1]) for p in points]
+            osrm_res = await self.osrm.route(coords)
+            rec_km = round(osrm_res.distance_km, 1)
+            rec_duration_min = round(osrm_res.duration_min)
+            rec_geom = osrm_res.geometry
+            osrm_ok = True
+        except Exception:
+            osrm_ok = False
+
+        if not osrm_ok or rec_km <= 0 or not rec_geom:
+            direct_dist = 0.0
+            for i in range(len(points) - 1):
+                direct_dist += haversine_km(points[i][0], points[i][1], points[i+1][0], points[i+1][1]) * 1.25
+            rec_km = max(50.0, round(direct_dist, 1))
+            rec_duration_min = round(rec_km / 65.0 * 60.0)
+            rec_geom = [[p[0], p[1]] for p in points]
+
+        rec_days = max(1, math.ceil(rec_km / 400.0))
         rec_fuel = round(rec_km / 14.0 * 105.0)  # 14 km/L @ 105 INR/L
-        rec_geom = [[p[0], p[1]] for p in points]
 
-        # 2. Fastest Route (bypasses optional stops)
-        fast_points = [origin] + [(cp["lat"], cp["lng"]) for cp in checkpoints if cp.get("is_mandatory", True)] + [destination]
-        fast_km = round(base_km * 0.90, 1)
-        fast_duration_min = round(fast_km / 75.0 * 60.0)  # faster 75 km/h expressway speed
-        fast_days = max(1, math.ceil(fast_km / 450.0))
+        # 2. Fastest Route
+        fast_intermediate = [cp for cp in intermediate_cps if cp.get("is_mandatory", True)]
+        fast_points = [origin] + [(cp["lat"], cp["lng"]) for cp in fast_intermediate] + [destination]
+        fast_geom: list[list[float]] = []
+        fast_km = 0.0
+        fast_duration_min = 0.0
+        fast_osrm_ok = False
+
+        if len(fast_points) != len(points):
+            try:
+                coords = [Coordinate(lat=p[0], lng=p[1]) for p in fast_points]
+                fast_res = await self.osrm.route(coords)
+                fast_km = round(fast_res.distance_km, 1)
+                fast_duration_min = round(fast_res.duration_min)
+                fast_geom = fast_res.geometry
+                fast_osrm_ok = True
+            except Exception:
+                fast_osrm_ok = False
+
+        if not fast_osrm_ok or fast_km <= 0:
+            fast_km = round(rec_km * 0.92, 1)
+            fast_duration_min = round(rec_duration_min * 0.88)
+            fast_geom = rec_geom if rec_geom else [[p[0], p[1]] for p in fast_points]
+
+        fast_days = max(1, math.ceil(fast_km / 500.0))
         fast_fuel = round(fast_km / 14.0 * 105.0)
-        fast_geom = [[p[0], p[1]] for p in fast_points]
 
-        # 3. Scenic Route (adds extra corridor points)
-        scenic_km = round(base_km * 1.12, 1)
-        scenic_duration_min = round(scenic_km / 55.0 * 60.0)  # scenic hill passes avg 55 km/h
-        scenic_days = rec_days + 2
+        # 3. Scenic Route
+        scenic_km = round(rec_km * 1.12, 1)
+        scenic_duration_min = round(rec_duration_min * 1.25)
+        scenic_days = rec_days + 1
         scenic_fuel = round(scenic_km / 13.0 * 105.0)
-        scenic_geom = [[p[0], p[1]] for p in points]
+        scenic_geom = rec_geom
 
         return [
             {
                 "label": "Recommended Route",
-                "description": "Balanced NH-44 corridor with optimized overnight stays & acclimatisation",
+                "description": "Optimized road corridor with balanced driving fatigue and comfortable overnight halts",
                 "total_distance_km": rec_km,
                 "total_duration_min": rec_duration_min,
                 "estimated_days": rec_days,
@@ -81,9 +118,9 @@ class TravelRoutingService:
                 "geometry": rec_geom,
                 "checkpoints": [cp.get("id", f"cp-{i}") for i, cp in enumerate(checkpoints)],
                 "is_selected": True,
-                "data_source": "osrm_hybrid",
-                "fallback_estimate": False,
-                "note": "Optimized for comfort and family road safety.",
+                "data_source": "osrm_hybrid" if osrm_ok else "haversine_estimate",
+                "fallback_estimate": not osrm_ok,
+                "note": "Optimized for comfort, safety and scenery." if osrm_ok else "Straight-line projection.",
             },
             {
                 "label": "Fastest Route",
@@ -96,13 +133,13 @@ class TravelRoutingService:
                 "geometry": fast_geom,
                 "checkpoints": [cp.get("id", f"cp-{i}") for i, cp in enumerate(checkpoints) if cp.get("is_mandatory", True)],
                 "is_selected": False,
-                "data_source": "osrm_hybrid",
-                "fallback_estimate": False,
-                "note": "Longer daily driving stretches (approx 8–9 hours/day).",
+                "data_source": "osrm_hybrid" if (fast_osrm_ok or osrm_ok) else "haversine_estimate",
+                "fallback_estimate": not (fast_osrm_ok or osrm_ok),
+                "note": "Longer daily driving stretches.",
             },
             {
                 "label": "Scenic & Heritage Route",
-                "description": "Via historic fortresses, cultural towns and high mountain viewpoints",
+                "description": "Via historic fortresses, cultural towns and viewpoints",
                 "total_distance_km": scenic_km,
                 "total_duration_min": scenic_duration_min,
                 "estimated_days": scenic_days,
@@ -111,8 +148,8 @@ class TravelRoutingService:
                 "geometry": scenic_geom,
                 "checkpoints": [cp.get("id", f"cp-{i}") for i, cp in enumerate(checkpoints)],
                 "is_selected": False,
-                "data_source": "osrm_hybrid",
-                "fallback_estimate": False,
-                "note": "Includes mountain ghat segments and historical stops.",
+                "data_source": "osrm_hybrid" if osrm_ok else "haversine_estimate",
+                "fallback_estimate": not osrm_ok,
+                "note": "Includes scenic bypasses and heritage halts.",
             },
         ]

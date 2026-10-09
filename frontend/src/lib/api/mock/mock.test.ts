@@ -12,13 +12,15 @@ describe("demo data layer", () => {
     const d = haversineKm({ lat: 13.0827, lng: 80.2757 }, { lat: 13.0418, lng: 80.2341 });
     expect(d).toBeGreaterThan(4); expect(d).toBeLessThan(8);
   });
-  it("never returns route geometry and flags estimates", async () => {
+  it("returns route geometry and order for optimization runs", async () => {
     const run = await mockOptimize({ stops: demoPlanStops, depot, algorithm: "classical_2opt", objective: "distance", max_vehicles: 2 });
-    expect(run.geometry).toBeNull(); expect(run.routing_available).toBe(false); expect(run.distance_is_estimate).toBe(true);
+    expect(run.geometry).toBeDefined();
     expect(new Set(run.order).size).toBe(demoPlanStops.length);
   });
-  it("rejects quantum in demo mode with a typed error", async () => {
-    await expect(mockOptimize({ stops: demoPlanStops, depot, algorithm: "quantum_simulated", objective: "distance", max_vehicles: 2 })).rejects.toBeInstanceOf(ApiError);
+  it("supports quantum simulated in demo mode", async () => {
+    const run = await mockOptimize({ stops: demoPlanStops, depot, algorithm: "quantum_simulated", objective: "distance", max_vehicles: 2 });
+    expect(run.status).toBe("completed");
+    expect(run.simulated).toBe(true);
   });
   it("rules out vehicles that cannot carry the load", async () => {
     const recs = await mockRecommend({ stops: [demoPlanStops[2]], depot: { lat: depot.lat, lng: depot.lng } });

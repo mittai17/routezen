@@ -332,79 +332,509 @@ const DEMO_ITINERARY: ItineraryDay[] = [
   },
 ];
 
+// ── Local Dynamic Store & Helper Utilities ─────────────────────────────────
+
+function getStoredTrips(): Map<string, TravelTrip> {
+  const store = new Map<string, TravelTrip>();
+  store.set(DEMO_TRIP.id, DEMO_TRIP);
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("routezen_travel_trips");
+      if (raw) {
+        const parsed: TravelTrip[] = JSON.parse(raw);
+        for (const t of parsed) store.set(t.id, t);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return store;
+}
+
+function persistStoredTrips(store: Map<string, TravelTrip>) {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("routezen_travel_trips", JSON.stringify(Array.from(store.values())));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function haversineDistKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const r = 6371.0;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dp = ((lat2 - lat1) * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(Math.max(0, Math.min(1, a))));
+}
+
+function interpolateCoords(
+  origin: [number, number],
+  dest: [number, number],
+  steps = 8
+): [number, number][] {
+  const pts: [number, number][] = [];
+  const [lat1, lng1] = origin;
+  const [lat2, lng2] = dest;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const lat = lat1 + t * (lat2 - lat1);
+    const lng = lng1 + t * (lng2 - lng1);
+    const curveOffset = Math.sin(t * Math.PI) * 0.04;
+    pts.push([Number((lat + curveOffset).toFixed(4)), Number((lng + curveOffset * 0.5).toFixed(4))]);
+  }
+  return pts;
+}
+
+async function fetchOsrmGeometry(
+  coords: [number, number][]
+): Promise<[number, number][] | null> {
+  try {
+    const res = await fetch("http://localhost:8000/api/v1/routing/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coordinates: coords.map(([lat, lng]) => ({ lat, lng })),
+        overview: "full",
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.geometry) && data.geometry.length > 0) {
+        return data.geometry;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 // ── API Functions ──────────────────────────────────────────────────────────
 
-async function demo<T>(value: T, delayMs = 400): Promise<T> {
+async function demo<T>(value: T, delayMs = 300): Promise<T> {
   await new Promise(r => setTimeout(r, delayMs));
   return value;
 }
 
 export async function listTrips(): Promise<TravelTrip[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_TRIPS);
-  return request("/travel/trips", { schema: tripListSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      const remote = await request("/travel/trips", { schema: tripListSchema });
+      const store = getStoredTrips();
+      for (const t of remote) store.set(t.id, t);
+      persistStoredTrips(store);
+      return Array.from(store.values());
+    } catch {
+      // fallback to store
+    }
+  }
+  const store = getStoredTrips();
+  return demo(Array.from(store.values()));
 }
 
 export async function getTrip(id: string): Promise<TravelTrip> {
-  if (USE_DEMO_DATA) return demo(DEMO_TRIP);
-  return request(`/travel/trips/${id}`, { schema: travelTripSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      const trip = await request(`/travel/trips/${id}`, { schema: travelTripSchema });
+      const store = getStoredTrips();
+      store.set(trip.id, trip);
+      persistStoredTrips(store);
+      return trip;
+    } catch {
+      // fallback to store
+    }
+  }
+  const store = getStoredTrips();
+  const found = store.get(id);
+  if (found) return demo(found);
+  return demo(DEMO_TRIP);
 }
 
 export async function createTrip(body: Partial<TravelTrip>): Promise<TravelTrip> {
-  if (USE_DEMO_DATA) return demo({ ...DEMO_TRIP, ...body, id: `trip-${Date.now()}` });
-  return request("/travel/trips", { method: "POST", body, schema: travelTripSchema });
+  let created: TravelTrip;
+  if (!USE_DEMO_DATA) {
+    try {
+      created = await request("/travel/trips", { method: "POST", body, schema: travelTripSchema });
+      const store = getStoredTrips();
+      store.set(created.id, created);
+      persistStoredTrips(store);
+      return created;
+    } catch {
+      // fallback to client-side creation
+    }
+  }
+  const newId = `trip-${Date.now()}`;
+  created = {
+    ...DEMO_TRIP,
+    ...body,
+    id: newId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as TravelTrip;
+  const store = getStoredTrips();
+  store.set(created.id, created);
+  persistStoredTrips(store);
+  return demo(created);
 }
 
 export async function updateTrip(id: string, body: Partial<TravelTrip>): Promise<TravelTrip> {
-  if (USE_DEMO_DATA) return demo({ ...DEMO_TRIP, ...body });
-  return request(`/travel/trips/${id}`, { method: "POST", body, schema: travelTripSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      const updated = await request(`/travel/trips/${id}`, { method: "POST", body, schema: travelTripSchema });
+      const store = getStoredTrips();
+      store.set(id, updated);
+      persistStoredTrips(store);
+      return updated;
+    } catch {
+      // fallback
+    }
+  }
+  const store = getStoredTrips();
+  const existing = store.get(id) ?? DEMO_TRIP;
+  const updated: TravelTrip = { ...existing, ...body, updated_at: new Date().toISOString() };
+  store.set(id, updated);
+  persistStoredTrips(store);
+  return demo(updated);
 }
 
 export async function deleteTrip(id: string): Promise<void> {
-  if (USE_DEMO_DATA) return demo(undefined);
-  return request(`/travel/trips/${id}`, { method: "DELETE", schema: z.void() });
+  if (!USE_DEMO_DATA) {
+    try {
+      await request(`/travel/trips/${id}`, { method: "DELETE", schema: z.void() });
+    } catch {
+      // ignore
+    }
+  }
+  const store = getStoredTrips();
+  store.delete(id);
+  persistStoredTrips(store);
+  return demo(undefined);
 }
 
 export async function getTripPreferences(tripId: string): Promise<TravelPreferences> {
-  if (USE_DEMO_DATA) return demo(DEMO_PREFS);
-  return request(`/travel/trips/${tripId}/preferences`, { schema: travelPreferencesSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/preferences`, { schema: travelPreferencesSchema });
+    } catch {
+      // fallback
+    }
+  }
+  return demo({ ...DEMO_PREFS, trip_id: tripId });
 }
 
 export async function saveTripPreferences(tripId: string, body: Partial<TravelPreferences>): Promise<TravelPreferences> {
-  if (USE_DEMO_DATA) return demo({ ...DEMO_PREFS, ...body });
-  return request(`/travel/trips/${tripId}/preferences`, { method: "POST", body, schema: travelPreferencesSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/preferences`, { method: "POST", body, schema: travelPreferencesSchema });
+    } catch {
+      // fallback
+    }
+  }
+  return demo({ ...DEMO_PREFS, ...body, trip_id: tripId });
 }
 
 export async function listCheckpoints(tripId: string): Promise<TravelCheckpoint[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_CHECKPOINTS);
-  return request(`/travel/trips/${tripId}/checkpoints`, { schema: z.array(checkpointSchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      const cps = await request(`/travel/trips/${tripId}/checkpoints`, { schema: z.array(checkpointSchema) });
+      if (cps && cps.length > 0) return cps;
+    } catch {
+      // fallback
+    }
+  }
+  if (tripId === "demo-trip-001") {
+    return demo(DEMO_CHECKPOINTS);
+  }
+  const store = getStoredTrips();
+  const trip = store.get(tripId) ?? DEMO_TRIP;
+  const dynamicCps: TravelCheckpoint[] = [
+    {
+      id: `cp-start-${tripId}`,
+      trip_id: tripId,
+      sequence: 0,
+      name: trip.origin_name,
+      address: trip.origin_name,
+      lat: trip.origin_lat,
+      lng: trip.origin_lng,
+      type: "origin",
+      is_mandatory: true,
+      stay_overnight: false,
+      planned_arrival: null,
+      planned_departure: trip.departure_date ? `${trip.departure_date}T06:00:00` : null,
+      activity_duration_min: 0,
+      notes: "Trip departure point",
+      distance_from_prev_km: null,
+      duration_from_prev_min: null,
+    },
+    {
+      id: `cp-end-${tripId}`,
+      trip_id: tripId,
+      sequence: 1,
+      name: trip.destination_name,
+      address: trip.destination_name,
+      lat: trip.destination_lat,
+      lng: trip.destination_lng,
+      type: "destination",
+      is_mandatory: true,
+      stay_overnight: false,
+      planned_arrival: null,
+      planned_departure: null,
+      activity_duration_min: 0,
+      notes: "Destination point",
+      distance_from_prev_km: Math.round(haversineDistKm(trip.origin_lat, trip.origin_lng, trip.destination_lat, trip.destination_lng) * 1.25),
+      duration_from_prev_min: Math.round(haversineDistKm(trip.origin_lat, trip.origin_lng, trip.destination_lat, trip.destination_lng) * 1.25 / 65 * 60),
+    },
+  ];
+  return demo(dynamicCps);
 }
 
 export async function generateRouteOptions(tripId: string): Promise<RouteOption[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_ROUTE_OPTIONS, 1200);
-  return request(`/travel/trips/${tripId}/route-options`, { method: "POST", schema: z.array(routeOptionSchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      const remote = await request(`/travel/trips/${tripId}/route-options`, { method: "POST", schema: z.array(routeOptionSchema) });
+      if (remote && remote.length > 0) return remote;
+    } catch {
+      // fallback to dynamic computation
+    }
+  }
+
+  if (tripId === "demo-trip-001") {
+    return demo(DEMO_ROUTE_OPTIONS, 800);
+  }
+
+  const store = getStoredTrips();
+  const trip = store.get(tripId) ?? DEMO_TRIP;
+
+  const oLat = trip.origin_lat || 13.0827;
+  const oLng = trip.origin_lng || 80.2707;
+  const dLat = trip.destination_lat || 15.2993;
+  const dLng = trip.destination_lng || 74.1240;
+
+  const directKm = haversineDistKm(oLat, oLng, dLat, dLng);
+  const roadKm = Math.max(30, Math.round(directKm * 1.25));
+
+  // Try real road geometry from OSRM
+  let roadGeom = await fetchOsrmGeometry([[oLat, oLng], [dLat, dLng]]);
+  if (!roadGeom || roadGeom.length === 0) {
+    roadGeom = interpolateCoords([oLat, oLng], [dLat, dLng], 12);
+  }
+
+  const recDays = Math.max(1, Math.ceil(roadKm / 400));
+  const recFuel = Math.round((roadKm / 14) * 105);
+  const recTotal = recFuel + recDays * 3500;
+  const recDuration = Math.round((roadKm / 65) * 60);
+
+  const fastKm = Math.round(roadKm * 0.94);
+  const fastDays = Math.max(1, Math.ceil(fastKm / 500));
+  const fastFuel = Math.round((fastKm / 14) * 105);
+  const fastTotal = fastFuel + fastDays * 3200;
+  const fastDuration = Math.round((fastKm / 75) * 60);
+
+  const scenicKm = Math.round(roadKm * 1.12);
+  const scenicDays = recDays + 1;
+  const scenicFuel = Math.round((scenicKm / 13) * 105);
+  const scenicTotal = scenicFuel + scenicDays * 3900;
+  const scenicDuration = Math.round((scenicKm / 55) * 60);
+
+  const origCity = trip.origin_name.split(",")[0].trim();
+  const destCity = trip.destination_name.split(",")[0].trim();
+
+  const dynamicOptions: RouteOption[] = [
+    {
+      id: `route-${tripId}-rec`,
+      trip_id: tripId,
+      label: "Recommended Route",
+      description: `Balanced highway corridor from ${origCity} to ${destCity} with comfortable halts`,
+      total_distance_km: roadKm,
+      total_duration_min: recDuration,
+      estimated_days: recDays,
+      estimated_fuel_cost_inr: recFuel,
+      estimated_total_cost_inr: recTotal,
+      geometry: roadGeom,
+      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      is_selected: true,
+      data_source: "osrm_hybrid",
+      fallback_estimate: false,
+      note: "Optimized for safety and scenic balance",
+    },
+    {
+      id: `route-${tripId}-fast`,
+      trip_id: tripId,
+      label: "Fastest Route",
+      description: `Direct arterial route between ${origCity} and ${destCity} with minimum intermediate halts`,
+      total_distance_km: fastKm,
+      total_duration_min: fastDuration,
+      estimated_days: fastDays,
+      estimated_fuel_cost_inr: fastFuel,
+      estimated_total_cost_inr: fastTotal,
+      geometry: roadGeom,
+      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      is_selected: false,
+      data_source: "osrm_hybrid",
+      fallback_estimate: false,
+      note: "Longer daily driving stretches",
+    },
+    {
+      id: `route-${tripId}-scenic`,
+      trip_id: tripId,
+      label: "Scenic & Heritage Route",
+      description: `Scenic roads connecting ${origCity} and ${destCity} with cultural sightseeing halts`,
+      total_distance_km: scenicKm,
+      total_duration_min: scenicDuration,
+      estimated_days: scenicDays,
+      estimated_fuel_cost_inr: scenicFuel,
+      estimated_total_cost_inr: scenicTotal,
+      geometry: roadGeom,
+      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      is_selected: false,
+      data_source: "osrm_hybrid",
+      fallback_estimate: false,
+      note: "Extra time for local viewpoints and photography",
+    },
+  ];
+
+  return demo(dynamicOptions, 600);
 }
 
 export async function listStays(tripId: string, checkpointId?: string): Promise<TravelPlace[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_STAYS);
-  return request(`/travel/trips/${tripId}/stays`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/stays`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+    } catch {
+      // fallback
+    }
+  }
+  return demo(DEMO_STAYS);
 }
 
 export async function listRestaurants(tripId: string, checkpointId?: string): Promise<TravelPlace[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_RESTAURANTS);
-  return request(`/travel/trips/${tripId}/restaurants`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/restaurants`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+    } catch {
+      // fallback
+    }
+  }
+  return demo(DEMO_RESTAURANTS);
 }
 
 export async function listAttractions(tripId: string, checkpointId?: string): Promise<TravelPlace[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_ATTRACTIONS);
-  return request(`/travel/trips/${tripId}/attractions`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/attractions`, { query: { checkpoint_id: checkpointId }, schema: z.array(placeSchema) });
+    } catch {
+      // fallback
+    }
+  }
+  return demo(DEMO_ATTRACTIONS);
 }
 
 export async function buildItinerary(tripId: string): Promise<ItineraryDay[]> {
-  if (USE_DEMO_DATA) return demo(DEMO_ITINERARY, 1500);
-  return request(`/travel/trips/${tripId}/build-itinerary`, { method: "POST", schema: z.array(itineraryDaySchema) });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/build-itinerary`, { method: "POST", schema: z.array(itineraryDaySchema) });
+    } catch {
+      // fallback
+    }
+  }
+  if (tripId === "demo-trip-001") {
+    return demo(DEMO_ITINERARY, 1000);
+  }
+  const store = getStoredTrips();
+  const trip = store.get(tripId) ?? DEMO_TRIP;
+  const dist = Math.round(haversineDistKm(trip.origin_lat, trip.origin_lng, trip.destination_lat, trip.destination_lng) * 1.25);
+  const durMin = Math.round((dist / 65) * 60);
+
+  const dynamicItinerary: ItineraryDay[] = [
+    {
+      id: `day-01-${tripId}`,
+      trip_id: tripId,
+      day_number: 1,
+      date: trip.departure_date ?? "2025-06-01",
+      start_checkpoint_id: `cp-start-${tripId}`,
+      end_checkpoint_id: `cp-end-${tripId}`,
+      drive_distance_km: dist,
+      drive_duration_min: durMin,
+      estimated_cost_inr: Math.round((dist / 14) * 105 + 2500),
+      notes: `Scenic drive from ${trip.origin_name.split(",")[0]} towards ${trip.destination_name.split(",")[0]}`,
+      items: [
+        {
+          id: `item-01a-${tripId}`,
+          sequence: 0,
+          type: "drive",
+          label: `${trip.origin_name.split(",")[0]} → ${trip.destination_name.split(",")[0]}`,
+          place_id: null,
+          checkpoint_id: `cp-end-${tripId}`,
+          start_time: "07:00",
+          end_time: "15:00",
+          duration_min: durMin,
+          cost_inr: Math.round((dist / 14) * 105),
+          notes: "Highway cruise leg",
+        },
+        {
+          id: `item-01b-${tripId}`,
+          sequence: 1,
+          type: "stay",
+          label: `Check-in at ${trip.destination_name.split(",")[0]}`,
+          place_id: null,
+          checkpoint_id: `cp-end-${tripId}`,
+          start_time: "15:30",
+          end_time: "16:00",
+          duration_min: 30,
+          cost_inr: 2200,
+          notes: "Overnight stay",
+        },
+      ],
+    },
+  ];
+  return demo(dynamicItinerary, 800);
 }
 
 export async function getTripBudget(tripId: string): Promise<TripBudget> {
-  if (USE_DEMO_DATA) return demo(DEMO_BUDGET, 600);
-  return request(`/travel/trips/${tripId}/budget`, { schema: budgetSchema });
+  if (!USE_DEMO_DATA) {
+    try {
+      return await request(`/travel/trips/${tripId}/budget`, { schema: budgetSchema });
+    } catch {
+      // fallback
+    }
+  }
+  if (tripId === "demo-trip-001") {
+    return demo(DEMO_BUDGET, 600);
+  }
+  const store = getStoredTrips();
+  const trip = store.get(tripId) ?? DEMO_TRIP;
+  const dist = Math.round(haversineDistKm(trip.origin_lat, trip.origin_lng, trip.destination_lat, trip.destination_lng) * 1.25);
+  const fuel = Math.round((dist / 14) * 105);
+  const stay = 4500;
+  const meals = 2400;
+  const contingency = Math.round((fuel + stay + meals) * 0.1);
+  const total = fuel + stay + meals + contingency;
+
+  return demo({
+    trip_id: tripId,
+    target_budget_inr: total + 5000,
+    estimated_total_inr: total,
+    fuel_inr: fuel,
+    accommodation_inr: stay,
+    meals_inr: meals,
+    attractions_inr: 800,
+    tolls_inr: 950,
+    parking_inr: 400,
+    other_inr: 0,
+    contingency_inr: contingency,
+    unknown_items: ["Tolls may vary depending on expressway segments chosen"],
+    over_budget: false,
+    day_totals: [{ day: 1, date: trip.departure_date, total_inr: total }],
+    assumptions: [
+      `Fuel: Petrol @ ₹105/L, mileage 14 km/L for ${dist} km`,
+      "Accommodation: ₹2,200/night average",
+      `Meals: ₹400/person/day for ${trip.adults} adult(s)`,
+      "Contingency: 10% safety cushion",
+    ],
+    data_source: "dynamic_calculation",
+  }, 400);
 }

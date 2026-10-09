@@ -25,7 +25,9 @@ export function Topbar() {
           <D.Overlay className="fixed inset-0 z-40 bg-black/50 lg:hidden" />
           <D.Content className="fixed inset-y-0 left-0 z-50 w-[260px] shadow-[var(--shadow-pop)] lg:hidden" aria-describedby={undefined}>
             <D.Title className="sr-only">Navigation</D.Title>
-            <SidebarContent onNavigate={() => setOpen(false)} />
+            <React.Suspense fallback={<div className="h-full bg-sidebar" />}>
+              <SidebarContent onNavigate={() => setOpen(false)} />
+            </React.Suspense>
           </D.Content>
         </D.Portal>
       </D.Root>
