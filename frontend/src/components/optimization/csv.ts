@@ -15,11 +15,12 @@ export function runToCsv(run: RunRecord, ctx: Ctx, opts: { demo: boolean }): str
   rows.push(csvRow(["RouteZen optimization export"]));
   rows.push(csvRow(["run_id", run.id]), csvRow(["kind", run.kind]), csvRow(["status", run.status]), csvRow(["created_at", run.created_at]), csvRow(["finished_at", run.finished_at]));
   if (opts.demo) rows.push(csvRow(["data_label", "Demo data"]));
-  if (run.kind === "classical") {
+  if (run.kind !== "quantum") {
     const res = run.result, v = classicalView(run, ctx);
     if (!res || !v) return rows.join("\r\n") + "\r\n";
     rows.push(csvRow(["solver", "OR-Tools VRP (classical)"]), csvRow(["solver_status", res.status]), csvRow(["distance_source", res.distance_source]), csvRow(["fallback_estimate", res.fallback_estimate]), csvRow(["runtime_ms", res.runtime_ms]));
     rows.push(csvRow(["total_distance_km", v.totals.distanceKm]), csvRow(["total_duration_min", v.totals.durationMin]), csvRow(["total_cost_inr", v.totals.cost]), csvRow(["cost_per_delivery_inr", v.totals.costPerDelivery]), csvRow(["total_emissions_g", v.totals.emissionsG]));
+    if (res.hybrid) { for (const [key, value] of Object.entries(res.hybrid)) rows.push(csvRow([`hybrid_${key}`, typeof value === "object" ? JSON.stringify(value) : value])); }
     rows.push("", csvRow(["vehicle_id", "vehicle", "sequence", "stop_id", "stop", "arrival_min", "departure_min", "cumulative_km", "load_kg", "deadline_min", "deadline_met", "route_distance_km", "route_duration_min", "route_cost_inr", "route_emissions_g", "payload_utilisation_pct", "energy_estimate", "energy_unit"]));
     for (const r of v.routes) for (const x of r.visits) {
       rows.push(csvRow([r.vehicleId, r.vehicleName, x.seq, x.stopId, x.name, x.arrivalMin, x.departureMin, x.cumKm, x.loadKg, x.deadlineMin, x.late === null ? "no deadline" : !x.late, r.distanceKm, r.durationMin, r.cost, r.emissionsG, r.payloadUtil == null ? null : Math.round(r.payloadUtil * 100), r.energy ? Number(r.energy.amount.toFixed(3)) : null, r.energy?.unit]));

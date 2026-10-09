@@ -35,8 +35,9 @@ const Table = ({ head, children, label }: { head: string[]; children: React.Reac
 
 export function ComparisonCards({ classical, quantum, cView, qView, cmp, pending }: { pending?: { classical?: string; quantum?: string }; classical?: ClassicalRun; quantum?: QuantumRun; cView: ClassicalView | null; qView: QuantumView | null; cmp: Comparison | null }) {
   const q = quantum?.result;
+  const hybrid = classical?.kind === "hybrid";
   return (
-    <section aria-label="Classical versus quantum simulation" className="space-y-3">
+    <section aria-label={`${hybrid ? "Hybrid" : "Classical"} versus quantum simulation`} className="space-y-3">
       <div className="grid gap-3 md:grid-cols-3">
         <Card>
           <CardHeader title="Quantum (QAOA)" subtitle="Qiskit Aer SIMULATION - not quantum hardware" action={<Badge tone="violet">Simulation</Badge>} />
@@ -52,7 +53,7 @@ export function ComparisonCards({ classical, quantum, cView, qView, cmp, pending
           </CardContent>
         </Card>
         <Card>
-          <CardHeader title="Classical (OR-Tools)" subtitle="Vehicle-routing solver (metaheuristic)" action={<Badge tone="info">Classical</Badge>} />
+          <CardHeader title={hybrid ? "Hybrid (QAOA + OR-Tools)" : "Classical (OR-Tools)"} subtitle={hybrid ? "Aer-simulated cluster ordering, validated by OR-Tools" : "Vehicle-routing solver (metaheuristic)"} action={<Badge tone={hybrid ? "violet" : "info"}>{hybrid ? "Simulation" : "Classical"}</Badge>} />
           <CardContent className="grid grid-cols-2 gap-2">
             {cView && classical?.result ? (
               <>
@@ -72,7 +73,7 @@ export function ComparisonCards({ classical, quantum, cView, qView, cmp, pending
                 <Metric label={`Optimal ${q.objective}`} value={`${formatNumber(qView.bruteCost, 2)} ${qView.unit}`} />
                 <Metric label="QAOA gap" value={qView.gapPct == null ? "n/a" : `+${formatNumber(qView.gapPct, 2)}%`} tone={qView.matches ? "success" : qView.gapPct ? "danger" : undefined} hint={qView.matches ? "matches the optimum" : "longer than the optimum"} />
               </>
-            ) : <p className="col-span-2 text-sm text-muted-foreground">Brute-force reference is only produced by quantum runs.</p>}
+            ) : <p className="col-span-2 text-sm text-muted-foreground">{hybrid ? "Exact references for each small hybrid cluster appear in the hybrid summary." : "Brute-force reference is only produced by quantum runs."}</p>}
           </CardContent>
         </Card>
       </div>
@@ -84,7 +85,7 @@ export function ComparisonCards({ classical, quantum, cView, qView, cmp, pending
         <p className="rounded-xl border border-border px-3 py-2 text-sm" aria-live="polite">
           {cmp.comparable && cmp.quantumMinusClassicalKm !== undefined ? (
             <>
-              <strong>Same stops, one vehicle:</strong> OR-Tools {formatNumber(cmp.classicalKm ?? 0, 2)} km vs QAOA simulation {formatNumber(cmp.quantumKm ?? 0, 2)} km
+              <strong>Same stops, one vehicle:</strong> {hybrid ? "validated hybrid" : "OR-Tools"} {formatNumber(cmp.classicalKm ?? 0, 2)} km vs QAOA simulation {formatNumber(cmp.quantumKm ?? 0, 2)} km
               ({cmp.quantumMinusClassicalKm >= 0 ? "+" : ""}{formatNumber(cmp.quantumMinusClassicalKm, 2)} km{cmp.bruteKm != null ? `; exact optimum ${formatNumber(cmp.bruteKm, 2)} km` : ""}).
               The OR-Tools objective is weighted, so its distance is not guaranteed minimal. This compares solution quality only; it is not evidence of a quantum advantage.
             </>
@@ -289,14 +290,14 @@ function Unavailable({ reason }: { reason: string }) {
 export function AssumptionsPanel({ run, ctx, demo }: { run: RunRecord; ctx: Ctx; demo: boolean }) {
   const req = run.request;
   const res = run.result;
-  const vehicles = run.kind === "classical" ? req.vehicles : req.vehicle ? [req.vehicle] : [];
+  const vehicles = run.kind !== "quantum" ? req.vehicles : req.vehicle ? [req.vehicle] : [];
   const source = res && "distance_source" in res ? res.distance_source : null;
   const fallback = res && "fallback_estimate" in res ? res.fallback_estimate : false;
   const items: [string, React.ReactNode][] = [
     ["Data", demo ? "Demo data (illustrative, not solver output)" : "Backend run record"],
     ["Distance / duration source", <>{source ?? "n/a"}{fallback && <> - <strong className="text-warning">straight-line fallback estimate, not road distance</strong></>}</>],
     ["Return to depot", req.return_to_depot ? "Yes" : "No"],
-    ...(run.kind === "classical" ? [
+    ...(run.kind !== "quantum" ? [
       ["Objective weights", req.weights ? Object.entries(req.weights).map(([k, v]) => `${k} ${v}`).join(", ") : "backend defaults (distance 0.4, time 0.3, cost 0.2, emissions 0.1)"] as [string, React.ReactNode],
       ["Solver time limit", res && "time_limit_s" in res ? `${res.time_limit_s} s` : "n/a"] as [string, React.ReactNode],
     ] : [
@@ -337,7 +338,7 @@ export function SolverMeta({ run }: { run: RunRecord }) {
     ["Run id", <code key="i" className="break-all text-xs">{run.id}</code>], ["Status", run.status.replace("_", " ")],
     ["Created", new Date(run.created_at).toLocaleString()], ["Finished", run.finished_at ? new Date(run.finished_at).toLocaleString() : "n/a"],
   ];
-  if (res && run.kind === "classical" && "routes" in res) rows.push(["Solver", `OR-Tools VRP (${res.solver}), result "${res.status}"`], ["Runtime", `${formatNumber(res.runtime_ms, 0)} ms of ${res.time_limit_s}s limit`], ["Objective value", res.objective == null ? "n/a" : formatNumber(res.objective, 0)]);
+  if (res && run.kind !== "quantum" && "routes" in res) rows.push(["Solver", `${run.kind === "hybrid" ? "QAOA simulation + OR-Tools validation" : "OR-Tools VRP"} (${res.solver}), result "${res.status}"`], ["Runtime", `${formatNumber(res.runtime_ms, 0)} ms of ${res.time_limit_s}s limit`], ["Objective value", res.objective == null ? "n/a" : formatNumber(res.objective, 0)]);
   if (res && run.kind === "quantum" && "n_qubits" in res) rows.push(["Solver", `QAOA on Qiskit Aer - simulation (${res.solver}), result "${res.status.replaceAll("_", " ")}"`], ["Runtime", `${formatNumber(res.runtime_ms, 0)} ms`], ["Circuit", `${res.n_qubits} qubits, reps ${res.reps}, ${res.iterations} optimiser iterations, ${res.shots} shots`]);
   return <dl className="grid gap-x-6 gap-y-1.5 text-sm md:grid-cols-[140px_1fr]">{rows.map(([k, v]) => <React.Fragment key={k}><dt className="text-muted-foreground">{k}</dt><dd className="min-w-0 font-medium">{v}</dd></React.Fragment>)}</dl>;
 }

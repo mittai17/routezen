@@ -2,11 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_routing, get_run_manager, get_settings, get_workspace
-from app.api.usecases import resolve_classical, resolve_quantum
+from app.api.usecases import resolve_annealing, resolve_classical, resolve_quantum
 from app.core.config import Settings
 from app.schemas.common import Page
-from app.schemas.optimization import OptimizationRequest, OptimizationResult, QuantumRequest, RunRecord
+from app.schemas.optimization import (
+    AnnealingRequest, DynamicRerouteRequest, DynamicRerouteResult, HybridRequest,
+    OptimizationRequest, OptimizationResult, QuantumRequest, QuantumResult, RunRecord,
+)
+from app.services.dynamic_reroute import reroute_dynamic
+from app.services.optimizer_annealing import solve_simulated_annealing
 from app.services.optimizer_classical import solve_classical
+from app.services.optimizer_hybrid import solve_hybrid
 from app.services.optimizer_quantum import (
     QuantumCancelled, QuantumLimitError, QuantumTimeout, solve_quantum,
 )
@@ -44,6 +50,31 @@ async def start_classical(
     return runs.submit("classical", req_dump, work, timeout_s=limit + 30)
 
 
+@router.post("/hybrid", response_model=RunRecord, status_code=202)
+async def start_hybrid(
+    body: HybridRequest,
+    db: Session = Depends(get_db),
+    ws: str = Depends(get_workspace),
+    routing: OSRMClient = Depends(get_routing),
+    runs: RunManager = Depends(get_run_manager),
+    settings: Settings = Depends(get_settings),
+):
+    stops, vehicles, dist, dur, source, fb = await resolve_classical(body, db, ws, routing)
+    limit = body.time_limit_s or settings.classical_time_limit_s
+
+    def work(cancel) -> OptimizationResult:
+        result = solve_hybrid(stops, vehicles, dist, dur, body, limit, cancel)
+        result.distance_source, result.fallback_estimate = source, fb
+        if fb:
+            result.notes.append("Distances are straight-line FALLBACK ESTIMATES (OSRM unavailable).")
+        return result
+
+    req_dump = body.model_dump(mode="json", exclude={"matrices"})
+    req_dump.update(stops=[s.model_dump() for s in stops], vehicles=[v.model_dump() for v in vehicles])
+    return runs.submit("hybrid", req_dump, work, timeout_s=2 * limit + body.quantum_timeout_s + 15,
+                       timeout_exc=(QuantumTimeout,), cancel_exc=(QuantumCancelled,))
+
+
 @router.post("/quantum", response_model=RunRecord, status_code=202)
 async def start_quantum(
     body: QuantumRequest,
@@ -65,7 +96,7 @@ async def start_quantum(
     def work(cancel) -> object:
         res = solve_quantum(
             stops, dist, dur, vehicle, body.objective, body.return_to_depot, body.reps, body.max_iterations,
-            body.shots, body.seed, timeout, settings.quantum_max_stops, cancel,
+            body.shots, body.seed, timeout, settings.quantum_max_stops, cancel, restarts=body.restarts,
         )
         res.distance_source, res.fallback_estimate = source, fb
         return res
@@ -81,9 +112,56 @@ async def start_quantum(
     )
 
 
+@router.post("/annealing", response_model=RunRecord | QuantumResult, status_code=202)
+async def start_annealing(
+    body: AnnealingRequest,
+    sync: bool = Query(False),
+    db: Session = Depends(get_db),
+    ws: str = Depends(get_workspace),
+    routing: OSRMClient = Depends(get_routing),
+    runs: RunManager = Depends(get_run_manager),
+    settings: Settings = Depends(get_settings),
+):
+    stops, vehicle, dist, dur, source, fb = await resolve_annealing(body, db, ws, routing)
+    timeout = body.timeout_s or 60.0
+
+    def work(cancel) -> QuantumResult:
+        res = solve_simulated_annealing(
+            stops, dist, dur, vehicle=vehicle, return_to_depot=body.return_to_depot,
+            initial_temp=body.initial_temp, final_temp=body.final_temp,
+            cooling_rate=body.cooling_rate, steps=body.steps, seed=body.seed,
+            objective=body.objective, timeout_s=timeout, cancel_event=cancel,
+        )
+        res.distance_source, res.fallback_estimate = source, fb
+        return res
+
+    if sync:
+        return work(None)
+
+    req_dump = {
+        "stops": [s.model_dump() for s in stops], "objective": body.objective,
+        "initial_temp": body.initial_temp, "final_temp": body.final_temp,
+        "cooling_rate": body.cooling_rate, "steps": body.steps, "seed": body.seed,
+        "depot": body.depot.model_dump() if body.depot else None, "depot_location_id": body.depot_location_id,
+        "return_to_depot": body.return_to_depot, "vehicle": vehicle.model_dump() if vehicle else None,
+    }
+    return runs.submit(
+        "annealing", req_dump, work, timeout_s=timeout + 5,
+        timeout_exc=(QuantumTimeout,), cancel_exc=(QuantumCancelled,),
+    )
+
+
+@router.post("/reroute", response_model=DynamicRerouteResult, status_code=200)
+async def dynamic_reroute_endpoint(
+    body: DynamicRerouteRequest,
+    routing: OSRMClient = Depends(get_routing),
+):
+    return await reroute_dynamic(body, routing=routing)
+
+
 @router.get("/runs", response_model=Page[RunRecord])
 def list_runs(
-    kind: str | None = Query(None, pattern="^(classical|quantum)$"),
+    kind: str | None = Query(None, pattern="^(classical|quantum|hybrid|annealing)$"),
     status: str | None = None,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),

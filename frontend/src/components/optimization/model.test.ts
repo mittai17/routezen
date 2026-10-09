@@ -58,4 +58,36 @@ describe("schema", () => {
   it("rejects unknown status", () => {
     expect(runRecordSchema.safeParse({ id: "x", kind: "classical", status: "weird", created_at: "t", request: {} }).success).toBe(false);
   });
+  it("accepts the backend's null hybrid field on a classical result", () => {
+    expect(runRecordSchema.safeParse({ ...c, result: { ...c.result!, hybrid: null } }).success).toBe(true);
+  });
+  it("parses hybrid run metadata and labels the run as simulated", () => {
+    const parsed = runRecordSchema.parse({
+      ...c,
+      id: "hybrid-12345678",
+      kind: "hybrid",
+      result: {
+        ...c.result!,
+        solver: "hybrid_qaoa_ortools",
+        hybrid: {
+          simulation: true,
+          disclaimer: "QAOA was simulated classically with Qiskit Aer. No advantage is claimed.",
+          objective: "distance",
+          baseline_distance_km: 40,
+          baseline_duration_min: 90,
+          baseline_objective: 40,
+          candidate_objective: 38,
+          selected: "quantum_seeded",
+          clusters_attempted: 2,
+          clusters_solved: 2,
+          quantum_runtime_ms: 800,
+          improvement_pct: 5,
+          clusters: [{ stop_ids: ["d1", "d2"], status: "solved", n_qubits: 4, order: ["d2", "d1"], cost: 12, brute_force_cost: 11, gap_vs_brute_force_pct: 9.09 }],
+        },
+      },
+    });
+    expect(parsed.kind).toBe("hybrid");
+    if (parsed.kind === "quantum") throw new Error("expected a hybrid run");
+    expect(parsed.result?.hybrid?.selected).toBe("quantum_seeded");
+  });
 });

@@ -1,5 +1,5 @@
 "use client";
-import { AlertCircle, Flag } from "lucide-react";
+import { AlertCircle, Atom, Flag } from "lucide-react";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Badge, DemoBadge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/states";
@@ -16,13 +16,24 @@ export function ResultsPanel({ run, stops, depotName }: { run: OptimizationRun |
         <Metric label={`Total distance${run.distance_is_estimate ? " (estimate)" : ""}`} value={run.distance_km != null ? `${Math.round(run.distance_km * 10) / 10} km` : "n/a"} />
         <Metric label="Est. time" value={run.duration_min != null ? formatDuration(run.duration_min) : "n/a"} />
       </div>
+      {run.hybrid && (
+        <section className="mx-4 mb-3 rounded-xl border border-violet-300/40 bg-violet-500/5 p-3 text-xs" aria-label="Hybrid solver outcome">
+          <h3 className="flex items-center gap-1.5 font-semibold"><Atom className="size-3.5" /> Hybrid quantum-assisted outcome</h3>
+          <p className="mt-1.5">{run.hybrid.selected === "quantum_seeded" ? "Quantum-seeded route selected after OR-Tools validation." : "Classical baseline retained because the quantum-seeded candidate did not improve the validated objective."}</p>
+          <dl className="mt-2 grid grid-cols-2 gap-2">
+            <div><dt className="text-muted-foreground">Improvement</dt><dd className="font-semibold">{run.hybrid.improvement_pct.toFixed(2)}%</dd></div>
+            <div><dt className="text-muted-foreground">Clusters solved</dt><dd className="font-semibold">{run.hybrid.clusters_solved}/{run.hybrid.clusters_attempted}</dd></div>
+          </dl>
+          <p className="mt-2 text-muted-foreground">Qiskit Aer simulation, not quantum hardware. No quantum advantage is claimed.</p>
+        </section>
+      )}
       {(!run.routing_available || run.distance_is_estimate) && (
         <p role="status" className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg bg-warning-soft px-2.5 py-2 text-[11px] font-medium">
           <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
-          Routing unavailable. Distance is a straight-line fallback estimate (real road distance will be longer) and no route line is drawn on the map.
+          {run.distance_is_estimate ? "Distance uses a straight-line fallback estimate." : "Route geometry is unavailable here; see Optimization Results for per-vehicle routes."}
         </p>
       )}
-      {run.simulated && <p className="mx-4 mb-2 text-[11px] text-muted-foreground">Quantum result produced by a Qiskit Aer simulator.</p>}
+      {run.simulated && !run.hybrid && <p className="mx-4 mb-2 text-[11px] text-muted-foreground">Quantum result produced by a Qiskit Aer simulator.</p>}
       <ol className="max-h-[360px] divide-y divide-border overflow-y-auto px-4 pb-3 text-sm" aria-label="Visit order">
         <li className="flex items-center gap-2 py-2"><Flag className="size-4 text-success" /><span className="font-semibold">{depotName}</span><Badge tone="success">Start</Badge></li>
         {run.order.map((id, i) => {

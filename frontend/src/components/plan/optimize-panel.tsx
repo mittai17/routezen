@@ -15,16 +15,17 @@ export function OptimizePanel({ config, onChange, onRun, running, error, stopCou
     <Card>
       <CardHeader icon={<Zap />} title="Optimization Settings" subtitle="Choose how the visit order is computed." />
       <div className="space-y-3 p-4">
-        <FormField label="Algorithm" htmlFor="o-algo" hint={config.algorithm === "quantum_simulated" ? "Runs QAOA on a Qiskit Aer SIMULATOR, not quantum hardware. No speed-up over classical solvers is claimed." : undefined}>
-          <Select id="o-algo" value={config.algorithm} onChange={(e) => onChange({ ...config, algorithm: e.target.value as OptimizeConfig["algorithm"] })}>
-            <option value="classical_greedy">Classical: nearest neighbour</option>
-            <option value="classical_2opt">Classical: nearest neighbour + 2-opt</option>
+        <FormField label="Algorithm" htmlFor="o-algo" hint={(config.algorithm === "quantum_simulated" || config.algorithm === "hybrid") ? "Runs QAOA on a Qiskit Aer SIMULATOR, not quantum hardware. No speed-up over classical solvers is claimed." : undefined}>
+          <Select id="o-algo" value={config.algorithm} onChange={(e) => onChange({ ...config, algorithm: e.target.value as OptimizeConfig["algorithm"], objective: e.target.value === "hybrid" || e.target.value === "quantum_simulated" ? (config.objective === "cost" ? "distance" : config.objective) : config.objective })}>
+            <option value="classical_greedy">Classical (OR-Tools; demo: nearest neighbour)</option>
+            <option value="classical_2opt">Classical (OR-Tools; demo: 2-opt)</option>
+            <option value="hybrid">Hybrid: QAOA clusters + OR-Tools</option>
             <option value="quantum_simulated">Quantum (QAOA, Qiskit Aer simulation)</option>
           </Select>
         </FormField>
         <FormField label="Objective" htmlFor="o-obj">
           <Select id="o-obj" value={config.objective} onChange={(e) => onChange({ ...config, objective: e.target.value as OptimizeConfig["objective"] })}>
-            <option value="distance">Minimise distance</option><option value="time">Minimise time</option><option value="cost">Minimise cost</option>
+            <option value="distance">Minimise distance</option><option value="time">Minimise time</option>{config.algorithm !== "hybrid" && config.algorithm !== "quantum_simulated" && <option value="cost">Minimise cost</option>}
           </Select>
         </FormField>
         {!!error && <ErrorState title="Optimization failed" message={isApiError(error) ? error.userMessage : "Unexpected error"} className="py-5" />}

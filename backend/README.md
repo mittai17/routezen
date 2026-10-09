@@ -27,8 +27,8 @@ Demo vehicle profiles are seeded with `verification='assumed'` and a source note
 - `app/core` settings (env) and JSON logging; `app/schemas` Pydantic v2 models; `app/db` models/session; `alembic/` migrations
 - `app/services/recommendation.py` deterministic engine (formulas documented in the module docstring)
 - `app/services/routing.py` OSRM client (TTL cache, `RoutingUnavailable`; haversine only as opt-in, labelled `fallback_estimate`)
-- `app/services/optimizer_classical.py` OR-Tools VRP; `optimizer_quantum.py` QAOA on Aer (simulation, max 4 stops by default, hard cap 5)
-- `app/services/run_store.py` run store interface + in-memory implementation (history resets on restart)
+- `app/services/optimizer_classical.py` OR-Tools VRP; `optimizer_quantum.py` QAOA on Aer (simulation, hard cap 4 stops); `optimizer_hybrid.py` uses QAOA proposals as validated OR-Tools route seeds
+- `app/services/run_store.py` in-memory test store plus the default workspace-scoped SQLAlchemy store; interrupted jobs are marked failed on restart
 - `app/repositories` repository interface + SQL implementation; `app/api/v1` routers
 
 ## Notes

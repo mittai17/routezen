@@ -89,7 +89,7 @@ export async function mockRecommend(req: RecommendationRequest): Promise<Recomme
 
 export async function mockOptimize(req: OptimizationRequest): Promise<OptimizationRun> {
   await sleep(600);
-  if (req.algorithm.startsWith("quantum")) {
+  if (req.algorithm.startsWith("quantum") || req.algorithm === "hybrid") {
     throw new ApiError("unavailable", "Quantum optimisation (Qiskit Aer simulation) needs the backend and is not available in demo mode.");
   }
   const t0 = performance.now();

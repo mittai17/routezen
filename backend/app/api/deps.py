@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import logging
+import threading
 from functools import lru_cache
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.db.session import get_db
+from app.db.session import get_db, get_sessionmaker
 from app.services.routing import OSRMClient
-from app.services.run_store import InMemoryRunStore, RunManager
+from app.services.run_store import SQLAlchemyRunStore, RunManager
+
+_runs_lock = threading.Lock()
+log = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -21,7 +26,11 @@ def _routing() -> OSRMClient:
 
 @lru_cache
 def _runs() -> RunManager:
-    return RunManager(InMemoryRunStore())
+    store = SQLAlchemyRunStore(get_sessionmaker(), get_settings().workspace_id)
+    recovered = store.recover_interrupted()
+    if recovered:
+        log.warning("recovered interrupted optimization runs", extra={"run_count": recovered})
+    return RunManager(store)
 
 
 def get_routing() -> OSRMClient:
@@ -29,7 +38,9 @@ def get_routing() -> OSRMClient:
 
 
 def get_run_manager() -> RunManager:
-    return _runs()
+    # lru_cache alone permits concurrent first calls to execute the factory twice.
+    with _runs_lock:
+        return _runs()
 
 
 def get_workspace(settings: Settings = Depends(get_settings)) -> str:

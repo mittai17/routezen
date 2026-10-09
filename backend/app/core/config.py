@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     osrm_max_coordinates: int = Field(default=100, ge=2)
 
     classical_time_limit_s: int = Field(default=5, ge=1)
-    quantum_max_stops: int = Field(default=4, ge=1, le=5)
+    quantum_max_stops: int = Field(default=4, ge=1, le=4)
     quantum_timeout_s: float = Field(default=60.0, gt=0)
 
     @property

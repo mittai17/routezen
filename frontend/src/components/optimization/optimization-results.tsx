@@ -18,7 +18,7 @@ import { AssumptionsPanel, ClassicalOrder, ComparisonCards, QuantumOrder, RouteM
 
 const TABS = [["summary", "Summary"], ["order", "Visit order"], ["map", "Route map"], ["metrics", "Detailed metrics"], ["assumptions", "Assumptions"]] as const;
 type Tab = (typeof TABS)[number][0];
-const SLOW_MS = { classical: 90_000, quantum: 180_000 };
+const SLOW_MS = { classical: 90_000, hybrid: 180_000, quantum: 180_000 };
 
 /** Run record that polls GET /optimization/runs/{id} while queued/running. */
 function useLiveRun(id: string | undefined, listed: RunRecord | undefined) {
@@ -61,7 +61,7 @@ export function OptimizationResults() {
   const [notice, setNotice] = React.useState<string | null>(null);
 
   const list = React.useMemo(() => runs.data ?? [], [runs.data]);
-  const classicals = list.filter((r): r is ClassicalRun => r.kind === "classical");
+  const classicals = list.filter((r): r is ClassicalRun => r.kind !== "quantum");
   const quantums = list.filter((r): r is QuantumRun => r.kind === "quantum");
   const pickDefault = <T extends RunRecord>(rs: T[]) => rs.find((r) => r.status === "succeeded") ?? rs[0];
   const cListed = classicals.find((r) => r.id === cPick) ?? pickDefault(classicals);
@@ -72,10 +72,10 @@ export function OptimizationResults() {
   const quantum = qLive.run as QuantumRun | undefined;
 
   const start = useMutation({
-    mutationFn: (kind: "classical" | "quantum") => optimizationApi.start(kind),
+    mutationFn: (kind: "classical" | "quantum" | "hybrid") => optimizationApi.start(kind),
     onSuccess: async (rec) => {
       setNotice(null);
-      if (rec.kind === "classical") setCPick(rec.id); else setQPick(rec.id);
+      if (rec.kind !== "quantum") setCPick(rec.id); else setQPick(rec.id);
       await qc.invalidateQueries({ queryKey: ["opt-runs"] });
     },
     onError: (e) => setNotice(isApiError(e) ? e.userMessage : "Could not start the run."),
@@ -94,9 +94,10 @@ export function OptimizationResults() {
     const w: string[] = [];
     const cr = classical?.result, qr = quantum?.result;
     if (cr) {
-      if (cr.fallback_estimate) w.push("Classical distances are straight-line fallback estimates, not road distances; real road distance will be longer.");
-      if (cr.status === "partial") w.push("Classical result is partial: some stops could not be assigned.");
-      if (cr.status === "infeasible" || cr.status === "error") w.push(`Classical solver returned "${cr.status}".`);
+      const label = classical?.kind === "hybrid" ? "Hybrid" : "Classical";
+      if (cr.fallback_estimate) w.push(`${label} distances are straight-line fallback estimates, not road distances; real road distance will be longer.`);
+      if (cr.status === "partial") w.push(`${label} result is partial: some stops could not be assigned.`);
+      if (cr.status === "infeasible" || cr.status === "error") w.push(`${label} solver returned "${cr.status}".`);
       if (cView?.deadlines.late) w.push(`${cView.deadlines.late} stop${cView.deadlines.late > 1 ? "s arrive" : " arrives"} after its deadline.`);
       w.push(...cr.notes);
     }
@@ -119,7 +120,7 @@ export function OptimizationResults() {
       <style>{`@media print{aside,header,nav,.lg\\:pl-\\[220px\\]>header{display:none!important}.lg\\:pl-\\[220px\\]{padding-left:0!important}main{padding:0!important}body{background:#fff!important}.optimization-print section,.optimization-print .rz-keep{break-inside:avoid}}`}</style>
       <PageHeader
         title="Optimization Results"
-        description="Compare classical (OR-Tools) and quantum-simulated (Qiskit Aer QAOA) route optimisation, with an exact brute-force reference."
+        description="Inspect classical OR-Tools, hybrid quantum-assisted, and standalone QAOA simulation results with honest reference comparisons."
         actions={
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             {demo && <DemoBadge />}
@@ -142,9 +143,9 @@ export function OptimizationResults() {
       ) : (
         <>
           <Card className="print:hidden">
-            <CardHeader title="Runs" subtitle="Pick a classical and a quantum-simulation run to compare" action={<SampleButtons demo={demo} onStart={(k) => start.mutate(k)} pending={start.isPending} />} />
+            <CardHeader title="Runs" subtitle="Pick a classical or hybrid fleet run and a small quantum simulation" action={<SampleButtons demo={demo} onStart={(k) => start.mutate(k)} pending={start.isPending} />} />
             <CardContent className="grid gap-3 md:grid-cols-2">
-              <RunSelect id="pick-classical" label="Classical run (OR-Tools)" icon={<Cpu className="size-4" />} runs={classicals} value={cListed?.id ?? ""} onChange={setCPick} />
+              <RunSelect id="pick-classical" label="Classical / hybrid run" icon={<Cpu className="size-4" />} runs={classicals} value={cListed?.id ?? ""} onChange={setCPick} />
               <RunSelect id="pick-quantum" label="Quantum run (Aer simulation, max 4 stops)" icon={<Atom className="size-4" />} runs={quantums} value={qListed?.id ?? ""} onChange={setQPick} />
               {[classical, quantum].map((r) => r && (busy(r) || r.status !== "succeeded") && <div key={r.id} className="md:col-span-1"><RunStatusBanner run={r} slow={slow(r)} onCancel={() => cancel.mutate(r.id)} cancelling={cancel.isPending && cancel.variables === r.id} /></div>)}
               {(cLive.pollError || qLive.pollError) && <p role="alert" className="text-sm text-danger md:col-span-2">Lost contact while polling a run. Retrying automatically.</p>}
@@ -159,10 +160,20 @@ export function OptimizationResults() {
           </div>
 
           <Panel id="summary" active={tab} title="Summary">
+            {classical?.result?.hybrid && <div className="mb-4 rounded-xl border border-border p-4 text-sm" role="status">
+              <h3 className="font-semibold">Hybrid quantum-assisted result · Aer simulation</h3>
+              <p className="mt-2">{classical.result.hybrid.disclaimer}</p>
+              <p className="mt-2">Selected: {classical.result.hybrid.selected === "quantum_seeded" ? "quantum-seeded refinement after OR-Tools validation" : "classical baseline retained after validation"}. Improvement: {classical.result.hybrid.improvement_pct.toFixed(2)}%.</p>
+              <p>Pure OR-Tools baseline: {classical.result.hybrid.baseline_distance_km.toFixed(2)} km / {classical.result.hybrid.baseline_duration_min.toFixed(2)} min. Objective: {classical.result.hybrid.objective}.</p>
+              <p>Baseline objective: {classical.result.hybrid.baseline_objective == null ? "n/a" : classical.result.hybrid.baseline_objective.toFixed(2)}; quantum-seeded candidate: {classical.result.hybrid.candidate_objective == null ? "not feasible" : classical.result.hybrid.candidate_objective.toFixed(2)}.</p>
+              <p>Clusters solved: {classical.result.hybrid.clusters_solved} / {classical.result.hybrid.clusters_attempted}; quantum simulation runtime: {(classical.result.hybrid.quantum_runtime_ms / 1000).toFixed(1)} s.</p>
+              <ul className="mt-2 list-disc pl-5">{classical.result.hybrid.clusters.map((cluster, i) => <li key={i}>Cluster {i + 1}: {cluster.stop_ids.length} stops · {cluster.status}{cluster.gap_vs_brute_force_pct != null ? ` · gap to local exact reference ${cluster.gap_vs_brute_force_pct.toFixed(2)}%` : ""}</li>)}</ul>
+              <p className="mt-2 text-xs text-muted-foreground">Exact references apply only to each small cluster; they are not a global vehicle-routing optimum.</p>
+            </div>}
             <ComparisonCards classical={classical?.status === "succeeded" ? classical : undefined} quantum={quantum?.status === "succeeded" ? quantum : undefined} cView={cView} qView={qView} cmp={cmp} pending={{ classical: classical && classical.status !== "succeeded" ? classical.status : undefined, quantum: quantum && quantum.status !== "succeeded" ? quantum.status : undefined }} />
             {cView && classical?.status === "succeeded" && (
               <section aria-label="Classical totals" className="mt-4 space-y-3">
-                <h3 className="text-sm font-semibold">Classical totals</h3>
+                <h3 className="text-sm font-semibold">{classical.kind === "hybrid" ? "Validated hybrid totals" : "Classical totals"}</h3>
                 <RouteMetrics view={cView} demo={demo} />
               </section>
             )}
@@ -174,7 +185,7 @@ export function OptimizationResults() {
           </Panel>
 
           <Panel id="order" active={tab} title="Route sequence and assignments">
-            {cView && classical?.status === "succeeded" ? <div className="space-y-2"><h3 className="flex items-center gap-2 text-sm font-semibold">Classical assignments <Badge tone="info">OR-Tools</Badge></h3><ClassicalOrder view={cView} /></div> : <p className="text-sm text-muted-foreground">No finished classical run selected.</p>}
+            {cView && classical?.status === "succeeded" ? <div className="space-y-2"><h3 className="flex items-center gap-2 text-sm font-semibold">Vehicle assignments <Badge tone={classical.kind === "hybrid" ? "violet" : "info"}>{classical.kind === "hybrid" ? "Hybrid validated" : "OR-Tools"}</Badge></h3><ClassicalOrder view={cView} /></div> : <p className="text-sm text-muted-foreground">No finished classical or hybrid run selected.</p>}
             {quantum?.status === "succeeded" && qView && quantum.result && <div className="mt-6 space-y-2"><h3 className="flex items-center gap-2 text-sm font-semibold">Quantum simulation order <Badge tone="violet">Aer simulation</Badge></h3><QuantumOrder run={quantum} view={qView} /></div>}
           </Panel>
 
@@ -185,8 +196,8 @@ export function OptimizationResults() {
           </Panel>
 
           <Panel id="metrics" active={tab} title="Detailed metrics and solver metadata">
-            {cView && classical?.status === "succeeded" && <div className="space-y-3"><h3 className="text-sm font-semibold">Classical per-vehicle metrics</h3><RouteMetrics view={cView} demo={demo} /></div>}
-            {[classical, quantum].map((r) => r && <div key={r.id} className="mt-5 space-y-2 rz-keep"><h3 className="text-sm font-semibold">{r.kind === "classical" ? "Classical" : "Quantum simulation"} solver metadata <StatusPill status={r.status === "succeeded" ? "completed" : r.status} label={r.status.replace("_", " ")} /></h3><SolverMeta run={r} /></div>)}
+            {cView && classical?.status === "succeeded" && <div className="space-y-3"><h3 className="text-sm font-semibold">Per-vehicle metrics</h3><RouteMetrics view={cView} demo={demo} /></div>}
+            {[classical, quantum].map((r) => r && <div key={r.id} className="mt-5 space-y-2 rz-keep"><h3 className="text-sm font-semibold">{r.kind === "hybrid" ? "Hybrid simulation" : r.kind === "classical" ? "Classical" : "Quantum simulation"} solver metadata <StatusPill status={r.status === "succeeded" ? "completed" : r.status} label={r.status.replace("_", " ")} /></h3><SolverMeta run={r} /></div>)}
           </Panel>
 
           <Panel id="assumptions" active={tab} title="Assumptions inspector">
@@ -217,16 +228,17 @@ function RunSelect({ id, label, icon, runs, value, onChange }: { id: string; lab
       <label htmlFor={id} className="flex items-center gap-1.5 text-xs font-semibold">{icon}{label}</label>
       <Select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={runs.length === 0}>
         {runs.length === 0 && <option value="">No runs</option>}
-        {runs.map((r) => <option key={r.id} value={r.id}>{r.id.slice(0, 8)} - {r.status.replace("_", " ")} - {new Date(r.created_at).toLocaleString()}</option>)}
+        {runs.map((r) => <option key={r.id} value={r.id}>{runLabel(r)} - {r.status.replace("_", " ")} - {new Date(r.created_at).toLocaleString()}</option>)}
       </Select>
     </div>
   );
 }
 
-function SampleButtons({ demo, onStart, pending }: { demo: boolean; onStart: (k: "classical" | "quantum") => void; pending: boolean }) {
+function SampleButtons({ demo, onStart, pending }: { demo: boolean; onStart: (k: "classical" | "quantum" | "hybrid") => void; pending: boolean }) {
   return (
     <div className="flex flex-wrap gap-2">
       <Button size="sm" variant="secondary" disabled={demo || pending} title={demo ? "Disabled in demo mode" : undefined} onClick={() => onStart("classical")}>Run classical sample</Button>
+      <Button size="sm" variant="secondary" disabled={demo || pending} title={demo ? "Disabled in demo mode" : undefined} onClick={() => onStart("hybrid")}>Run hybrid sample</Button>
       <Button size="sm" variant="secondary" disabled={demo || pending} title={demo ? "Disabled in demo mode" : undefined} onClick={() => onStart("quantum")}>Run quantum sample (4 stops)</Button>
     </div>
   );

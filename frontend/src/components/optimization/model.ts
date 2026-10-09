@@ -106,7 +106,7 @@ export function compareRuns(c: ClassicalRun | undefined, q: QuantumRun | undefin
   return { comparable: true, classicalKm: c.result.total_distance_km, quantumKm: q.result.cost, bruteKm: q.result.brute_force_cost ?? null, quantumMinusClassicalKm: q.result.cost - c.result.total_distance_km };
 }
 
-export const runLabel = (r: RunRecord) => `${r.kind === "classical" ? "Classical" : "Quantum sim"} · ${r.id.slice(0, 8)}`;
+export const runLabel = (r: RunRecord) => `${r.kind === "classical" ? "Classical" : r.kind === "hybrid" ? "Hybrid sim" : "Quantum sim"} · ${r.id.slice(0, 8)}`;
 export const pct = (v: number | null) => (v == null ? "n/a" : `${Math.round(v * 100)}%`);
 
 /** Elapsed ms since a run was created (for the client-side "taking long" warning). */

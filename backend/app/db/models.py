@@ -133,7 +133,7 @@ class PlanAssignment(WorkspaceScoped, Base):
 
 
 class OptimizationRun(WorkspaceScoped, Base):
-    """Persistent shape for runs. The live run store is in-memory (see services/run_store.py)."""
+    """Persistent optimization requests, outcomes, and lifecycle timestamps."""
 
     __tablename__ = "optimization_runs"
     __table_args__ = (Index("ix_runs_ws_kind_status", "workspace_id", "kind", "status"),)

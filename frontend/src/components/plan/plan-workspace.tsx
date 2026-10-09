@@ -35,7 +35,7 @@ export function PlanWorkspace() {
   });
 
   const optimize = useMutation({
-    mutationFn: () => api.optimize({ stops, depot, algorithm: config.algorithm, objective: config.objective, max_vehicles: constraints.max_vehicles }),
+    mutationFn: () => api.optimize({ stops, depot, algorithm: config.algorithm, objective: config.objective, max_vehicles: constraints.max_vehicles, constraints }),
     onSuccess: (r) => { dispatch({ type: "setRun", run: r }); dispatch({ type: "goto", step: 4 }); },
   });
 

@@ -45,7 +45,7 @@ export const eventSchema = z.object({
 });
 export const runSchema = z.object({
   id: z.string(),
-  kind: z.enum(["classical", "quantum"]),
+  kind: z.enum(["classical", "quantum", "hybrid"]),
   status: z.string(),
   created_at: z.string(),
   result: z.record(z.string(), z.unknown()).nullish(),
@@ -133,7 +133,7 @@ export interface VehicleMetric {
 }
 export interface EfficiencyRow { name: string; energyType: string; efficiency: number; unit: string; energyCostPerKm: number | null; operatingCostPerKm: number; emissionsGPerKm: number; verification: string }
 export interface DeadlineStats { actualOnTime: number; actualLate: number; plannedOnTime: number; plannedLate: number; noDeadline: number; unknown: number; actualRate: number | null; plannedRate: number | null }
-export interface SolverStats { kind: "classical" | "quantum"; runs: number; succeeded: number; failed: number; avgRuntimeMs: number | null }
+export interface SolverStats { kind: "classical" | "quantum" | "hybrid"; runs: number; succeeded: number; failed: number; avgRuntimeMs: number | null }
 export interface QuantumRow { id: string; created: string; nStops: number | null; quantumCost: number | null; classicalCost: number | null; bruteForceCost: number | null; gapPct: number | null; matchesBruteForce: boolean | null }
 
 export interface AnalyticsResult {
@@ -287,7 +287,7 @@ function computeDeadlines(plans: Plan[], packages: Package[], events: DeliveryEv
 
 function computeSolvers(runs: OptRun[], range: DateRange): { solvers: SolverStats[]; quantumRows: QuantumRow[] } {
   const inR = runs.filter((r) => inRange(r.created_at, range));
-  const solvers: SolverStats[] = (["classical", "quantum"] as const).map((kind) => {
+  const solvers: SolverStats[] = (["classical", "quantum", "hybrid"] as const).map((kind) => {
     const rs = inR.filter((r) => r.kind === kind);
     const rt = rs.map((r) => num(r.result?.runtime_ms)).filter((x): x is number => x !== null);
     return {

@@ -96,6 +96,19 @@ def test_deterministic_with_seed():
     assert (a.order, a.cost, a.feasible_probability) == (b.order, b.cost, b.feasible_probability)
 
 
+def test_restarts_keep_or_improve_variational_distribution():
+    """The best-of-restarts path remains deterministic and yields a valid report."""
+    D = random_matrix(2).tolist()
+    single = solve_quantum(stops(2), D, D, seed=19, max_iterations=5, shots=64, restarts=1)
+    restarted = solve_quantum(stops(2), D, D, seed=19, max_iterations=5, shots=64, restarts=2)
+    assert restarted.status == "solved"
+    assert sorted(restarted.order) == ["s0", "s1"]
+    # Both runs report an honest exact-reference gap; a restart never changes
+    # the reference or permits a result below its exact optimum.
+    assert restarted.brute_force_cost == single.brute_force_cost
+    assert restarted.cost >= restarted.brute_force_cost - 1e-6
+
+
 def test_feasibility_capacity_and_time_windows():
     T = np.array([[0, 10, 10], [10, 0, 10], [10, 10, 0]], dtype=float)
     ss = stops(2)

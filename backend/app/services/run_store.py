@@ -1,4 +1,4 @@
-"""Optimization run store (interface + in-memory implementation) and async runner."""
+"""Workspace-scoped persistent optimization history and asynchronous runner."""
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Protocol
 from uuid import uuid4
 
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db.models import OptimizationRun
+from app.repositories.base import ensure_workspace
 from app.schemas.optimization import RunRecord
 
 log = logging.getLogger(__name__)
@@ -57,6 +62,81 @@ class InMemoryRunStore:
             new = rec.model_copy(update=fields)
             self._runs[run_id] = new
             return new
+
+
+class SQLAlchemyRunStore:
+    """Use a fresh session per operation; never share request sessions with workers.
+
+    Recovery assumes a single application worker, matching the in-process runner.
+    Multiple API workers require a shared job queue and ownership/heartbeat leases.
+    """
+
+    def __init__(self, sessions: sessionmaker[Session], workspace_id: str):
+        self._sessions = sessions
+        self._workspace_id = workspace_id
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _record(row: OptimizationRun) -> RunRecord:
+        return RunRecord.model_validate(row, from_attributes=True)
+
+    def _query(self):
+        return select(OptimizationRun).where(OptimizationRun.workspace_id == self._workspace_id)
+
+    def create(self, kind: str, request: dict) -> RunRecord:
+        rec = RunRecord(id=str(uuid4()), kind=kind, status="queued", created_at=_now(), request=request)
+        with self._lock, self._sessions.begin() as session:
+            ensure_workspace(session, self._workspace_id)
+            session.add(OptimizationRun(workspace_id=self._workspace_id, **rec.model_dump()))
+        return rec
+
+    def get(self, run_id: str) -> RunRecord | None:
+        with self._lock, self._sessions() as session:
+            row = session.scalar(self._query().where(OptimizationRun.id == run_id))
+            return self._record(row) if row is not None else None
+
+    def list(self, kind=None, status=None, limit=50, offset=0):
+        query = self._query()
+        if kind:
+            query = query.where(OptimizationRun.kind == kind)
+        if status:
+            query = query.where(OptimizationRun.status == status)
+        with self._lock, self._sessions() as session:
+            total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+            rows = session.scalars(query.order_by(OptimizationRun.created_at.desc(), OptimizationRun.id.desc())
+                                   .limit(limit).offset(offset))
+            return [self._record(row) for row in rows], total
+
+    def update(self, run_id: str, **fields: Any) -> RunRecord | None:
+        allowed = {"status", "started_at", "finished_at", "result", "error"}
+        if fields.keys() - allowed:
+            raise ValueError("Only run lifecycle fields can be updated")
+        with self._lock, self._sessions.begin() as session:
+            row = session.scalar(self._query().where(OptimizationRun.id == run_id).with_for_update())
+            if row is None:
+                return None
+            # A late worker result must not overwrite a cancellation or timeout.
+            if row.status not in ("queued", "running"):
+                return self._record(row)
+            rec = RunRecord.model_validate({**self._record(row).model_dump(), **fields})
+            for name in fields:
+                setattr(row, name, getattr(rec, name))
+            if rec.started_at and rec.finished_at:
+                row.runtime_ms = max(0, (rec.finished_at - rec.started_at).total_seconds() * 1000)
+            session.flush()
+            return self._record(row)
+
+    def recover_interrupted(self) -> int:
+        """Close abandoned jobs once when this single-process manager starts."""
+        with self._lock, self._sessions.begin() as session:
+            result = session.execute(
+                update(OptimizationRun)
+                .where(OptimizationRun.workspace_id == self._workspace_id,
+                       OptimizationRun.status.in_(("queued", "running")))
+                .values(status="failed", finished_at=_now(),
+                        error="Optimization interrupted by a backend restart; submit a new run.")
+            )
+            return result.rowcount
 
 
 class RunManager:

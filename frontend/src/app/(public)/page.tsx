@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: { absolute: "RouteZen | Smarter Deliv
 
 const FEATURES = [
   { icon: Truck, title: "Right vehicle, with reasons", text: "Compare bikes, autos, vans and trucks on cost, energy, capacity and deadlines. Every rejection says why." },
-  { icon: Route, title: "Optimised stop order", text: "Classical OR-Tools routing, plus a clearly labelled quantum simulation for small problems." },
+  { icon: Route, title: "Optimised stop order", text: "OR-Tools routing with an optional hybrid mode that tests Aer-simulated QAOA cluster orderings and keeps the validated baseline when they do not improve it." },
   { icon: MapPinned, title: "Real roads only", text: "Routes come from OSRM geometry. If routing is down, we say so rather than draw a straight line." },
   { icon: Radio, title: "Status tracking", text: "Follow planned versus actual stop times using events your team reports. No fake GPS." },
   { icon: BarChart3, title: "Analytics", text: "Cost per delivery and per km, fuel and electricity use, utilisation and deadline compliance." },

@@ -2,7 +2,7 @@
 
 **Smarter Routes. Greener Tomorrow.**
 
-RouteZen is a delivery vehicle recommendation and route optimization web app (initial region: Chennai, Tamil Nadu; currency ₹, distances in km). It helps an operator choose a suitable vehicle per delivery, group and sequence stops, follow real road routes, and compare a classical optimizer (OR-Tools) with a small Qiskit QAOA experiment.
+RouteZen is a delivery vehicle recommendation and route optimization web app (initial region: Chennai, Tamil Nadu; currency ₹, distances in km). It helps an operator choose a suitable vehicle per delivery, group and sequence stops, follow real road routes, and run classical, simulated-quantum, or hybrid quantum-assisted optimization.
 
 Web only. No authentication in this phase (a fixed development workspace is used).
 
@@ -52,14 +52,17 @@ cd frontend && npm run lint && npx tsc --noEmit && npx vitest run && npm run bui
 - **Routing**: OSRM road geometry and distances. If OSRM is unreachable the API returns 503 `routing_unavailable`; a straight-line figure is only available as an explicit, labelled fallback estimate and is never drawn as a route.
 - **Classical optimizer**: OR-Tools VRP with capacity (weight, volume), time windows, vehicle availability, max stops and weighted objectives.
 - **Quantum experiment**: QAOA on a stop-ordering QUBO, run on the Qiskit **Aer simulator** (not quantum hardware), capped at 4 stops, with brute-force comparison on the same matrix. The result may be suboptimal and no quantum advantage is claimed.
+- **Hybrid optimizer**: first builds a feasible OR-Tools baseline, splits its routes into groups of at most four stops, uses simulated QAOA to propose an order for each group, then asks OR-Tools to validate and refine the combined seed. It keeps the classical baseline whenever the proposal is infeasible or worse. The UI reports which result was selected and local gaps against brute force.
+- **Run history**: optimization requests and outcomes are stored in Postgres/SQLite through the `optimization_runs` table. Jobs interrupted by a backend restart are closed as failed so they can be resubmitted.
 
 ## Known limitations
 - Vehicle specs are seeded as `assumed` demo values; replace them with verified data before relying on cost figures.
-- Optimization run history is in memory and resets when the backend restarts.
+- The in-process job runner assumes a single API worker. Multiple workers need a shared queue plus worker leases/heartbeats.
+- The hybrid method uses a classical simulation of QAOA and small local subproblems; it does not demonstrate quantum speed-up or global quantum optimality.
 - Archive (vehicles, scenarios) is a client-side convention; the backend has no `archived` column yet.
 - Scenario "higher fuel price" what-if needs a backend per-scenario override (disabled in the UI).
 - Public OSRM and OpenStreetMap tile servers are rate limited and not for production traffic; set `OSRM_BASE_URL` and a production tile provider.
-- Package time windows in the backend are timezone-aware datetimes; the planner currently uses HH:MM strings and does not send them.
+- Plan Delivery supports same-day `HH:MM` windows by converting them to route-relative minutes. Overnight and multi-day windows still require package records with timezone-aware datetimes.
 
 ## Legal
 The Privacy, Terms, Cookies and Acceptable Use pages are original drafts and **must be reviewed by a qualified professional before any commercial launch**. They make no compliance or certification claims.

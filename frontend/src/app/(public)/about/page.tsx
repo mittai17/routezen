@@ -12,7 +12,7 @@ export default function Page() {
         <p>RouteZen helps a dispatcher turn a list of packages into a delivery plan: pick a suitable vehicle for each load, sequence stops, and compare cost, time, energy and emissions across options.</p>
         <ul>
           <li>Vehicle recommendations with a reason for every choice and every rejection.</li>
-          <li>Classical route optimisation with Google OR-Tools, and a quantum option that is a labelled simulation.</li>
+          <li>Classical route optimisation with Google OR-Tools, plus a hybrid mode that tests small QAOA cluster orderings in a labelled Qiskit Aer simulation before OR-Tools validation.</li>
           <li>Road routes from OSRM. If routing is down, the map says so instead of drawing a straight line.</li>
           <li>Analytics, scenarios, reports and manual status tracking.</li>
         </ul>

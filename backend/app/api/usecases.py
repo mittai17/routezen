@@ -10,12 +10,13 @@ from sqlalchemy.orm import Session
 from app.db.models import Location, Package, VehicleProfile
 from app.schemas.common import Coordinate
 from app.schemas.optimization import (
-    Matrices, OptDepot, OptimizationRequest, OptStop, OptVehicle, QuantumRequest,
+    AnnealingRequest, Matrices, OptDepot, OptimizationRequest, OptStop, OptVehicle, QuantumRequest,
 )
 from app.schemas.recommendation import (
     DepotInput, PackageInput, PackageRecommendation, RecommendationRequest, VehicleSpec,
 )
 from app.services import recommendation as engine
+from app.services.optimizer_classical import _validate_matrix
 from app.services.routing import InvalidCoordinates, OSRMClient, RoutingUnavailable
 
 
@@ -128,12 +129,21 @@ def resolve_stops(db: Session, ws: str, stops: list[OptStop], package_ids: list[
         lat, lng = package_coords(db, p)
         ends = [m for m in (_minutes(p.window_end, start), _minutes(p.deadline, start)) if m is not None]
         ws_min = _minutes(p.window_start, start)
+        if ends and min(ends) < 0:
+            raise HTTPException(422, f"package '{p.reference}' has a delivery window or deadline before route start")
+        if ends and ws_min is not None and ws_min > min(ends):
+            raise HTTPException(422, f"package '{p.reference}' has no feasible delivery window before its deadline")
         out.append(OptStop(
             id=p.id, latitude=lat, longitude=lng, weight_kg=p.weight_kg, volume_m3=p.volume_m3 or 0,
             service_minutes=p.service_minutes,
             window_start_min=max(0.0, ws_min) if ws_min is not None else None,
             window_end_min=max(0.0, min(ends)) if ends else None,
         ))
+    if len(out) > 200:
+        raise HTTPException(422, "at most 200 total stops and packages are supported")
+    ids = [s.id for s in out]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, "stop ids must be unique, including resolved packages")
     return out
 
 
@@ -141,6 +151,11 @@ async def build_matrices(
     depot: tuple[float, float], stops: list[OptStop], given: Matrices | None, routing: OSRMClient, allow_fallback: bool
 ) -> tuple[list[list[float]], list[list[float]], str, bool]:
     if given is not None:
+        try:
+            _validate_matrix(given.distance_km, len(stops) + 1, "distance_km")
+            _validate_matrix(given.duration_min, len(stops) + 1, "duration_min")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         return given.distance_km, given.duration_min, "provided", False
     coords = [Coordinate(lat=depot[0], lng=depot[1])] + [Coordinate(lat=s.latitude, lng=s.longitude) for s in stops]
     try:
@@ -160,11 +175,24 @@ async def resolve_classical(req: OptimizationRequest, db: Session, ws: str, rout
         vehicles = [opt_vehicle(v) for v in rows]
     if not vehicles:
         raise HTTPException(422, "no vehicles supplied or found")
+    if len({v.vehicle_id for v in vehicles}) != len(vehicles):
+        raise HTTPException(422, "vehicle ids must be unique")
     dist, dur, source, fb = await build_matrices(depot, stops, req.matrices, routing, req.allow_fallback_estimate)
     return stops, vehicles, dist, dur, source, fb
 
 
 async def resolve_quantum(req: QuantumRequest, db: Session, ws: str, routing: OSRMClient):
+    depot = resolve_depot(db, ws, req.depot, req.depot_location_id)
+    stops = resolve_stops(db, ws, req.stops, req.package_ids, datetime.now(timezone.utc))
+    vehicle = req.vehicle
+    if vehicle is None and req.vehicle_id:
+        rows = load_vehicles(db, ws, [req.vehicle_id])
+        vehicle = opt_vehicle(rows[0])
+    dist, dur, source, fb = await build_matrices(depot, stops, req.matrices, routing, req.allow_fallback_estimate)
+    return stops, vehicle, dist, dur, source, fb
+
+
+async def resolve_annealing(req: AnnealingRequest, db: Session, ws: str, routing: OSRMClient):
     depot = resolve_depot(db, ws, req.depot, req.depot_location_id)
     stops = resolve_stops(db, ws, req.stops, req.package_ids, datetime.now(timezone.utc))
     vehicle = req.vehicle

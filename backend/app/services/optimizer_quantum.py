@@ -15,7 +15,7 @@ checked for permutation validity and for vehicle capacity / time windows, and
 compared with brute force on the same matrix.
 
 Hard size limit: n*n qubits on a statevector simulator grows as 2^(n*n);
-the default cap is 4 stops (16 qubits), absolute cap 5 (25 qubits, ~0.5 GB).
+the default cap is 4 stops (16 qubits), absolute cap 4 (16 qubits). The depot is already fixed outside the encoding.
 This is a correctness/education demo; it makes NO claim of quantum advantage.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ import threading
 import time
 
 import numpy as np
-from qiskit import QuantumCircuit, transpile
+from qiskit import transpile
 from qiskit.circuit.library import QAOAAnsatz
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_aer import AerSimulator
@@ -34,7 +34,7 @@ from scipy.optimize import minimize
 
 from app.schemas.optimization import OptStop, OptVehicle, QuantumResult
 
-ABSOLUTE_MAX_STOPS = 5
+ABSOLUTE_MAX_STOPS = 4
 
 
 class QuantumLimitError(ValueError):
@@ -181,8 +181,15 @@ def solve_quantum(
     timeout_s: float = 60.0,
     max_stops: int = 4,
     cancel_event: threading.Event | None = None,
+    restarts: int = 1,
 ) -> QuantumResult:
     t0 = time.perf_counter()
+    if cancel_event is not None and cancel_event.is_set():
+        raise QuantumCancelled()
+    if objective not in ("distance", "duration"):
+        raise ValueError("objective must be distance or duration")
+    if not 1 <= restarts <= 4:
+        raise ValueError("restarts must be between 1 and 4")
     n = len(stops)
     max_stops = min(max_stops, ABSOLUTE_MAX_STOPS)
     if n == 0:
@@ -213,7 +220,7 @@ def solve_quantum(
     op, offset = qubo_to_ising(Q, const)
     ansatz = QAOAAnsatz(cost_operator=op, reps=reps)
     ansatz.save_statevector()
-    sim = AerSimulator(method="statevector")
+    sim = AerSimulator(method="statevector", max_parallel_threads=1)
     compiled = transpile(ansatz, sim, optimization_level=0)
     deadline = t0 + timeout_s
     calls = {"n": 0}
@@ -232,20 +239,23 @@ def solve_quantum(
         return float(probabilities(theta) @ energies)
 
     rng = np.random.default_rng(seed)
-    x0 = rng.uniform(0, np.pi, size=2 * reps)
-    res = minimize(expectation, x0, method="COBYLA", options={"maxiter": max_iterations, "rhobeg": 0.5})
-    probs = probabilities(res.x)
+    # Keep the single-start sequence stable. Additional seeded starts explore
+    # different basins; retain the lowest-energy distribution so enabling
+    # restarts cannot make the variational expectation worse than start one.
+    distributions = []
+    for _ in range(restarts):
+        x0 = rng.uniform(0, np.pi, size=2 * reps)
+        res = minimize(expectation, x0, method="COBYLA", options={"maxiter": max_iterations, "rhobeg": 0.5})
+        distributions.append(probabilities(res.x))
+    probs = min(distributions, key=lambda distribution: float(distribution @ energies))
     probs = probs / probs.sum()
 
-    feasible_mask_prob = 0.0
-    valid_cache: dict[int, list[int] | None] = {}
-    top = np.argsort(probs)[::-1][: min(len(probs), 4096)]
-    for k in top:
-        if probs[k] < 1e-9:
-            break
-        valid_cache[int(k)] = decode_bitstring(int(k), n)
-        if valid_cache[int(k)] is not None:
-            feasible_mask_prob += float(probs[k])
+    # Enumerate only n! valid permutations, not an arbitrary top-probability
+    # cutoff that undercounts feasible mass when states are diffuse.
+    feasible_mask_prob = sum(
+        float(probs[sum(1 << (i * n + p) for p, i in enumerate(order))])
+        for order in itertools.permutations(range(n))
+    )
 
     samples = rng.choice(len(probs), size=shots, p=probs)
     best_order: list[int] | None = None

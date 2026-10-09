@@ -127,6 +127,20 @@ export const optimizationRunSchema = z.object({
   distance_is_estimate: z.boolean().default(false),
   compute_seconds: z.number().nullish(),
   simulated: z.boolean().default(false),
+  hybrid: z.object({
+    simulation: z.literal(true).default(true),
+    disclaimer: z.string(),
+    objective: z.enum(["distance", "duration"]),
+    baseline_distance_km: z.number(),
+    baseline_duration_min: z.number(),
+    baseline_objective: z.number().nullish(),
+    candidate_objective: z.number().nullish(),
+    selected: z.enum(["quantum_seeded", "classical_baseline"]),
+    clusters_attempted: z.number().int().nonnegative(),
+    clusters_solved: z.number().int().nonnegative(),
+    quantum_runtime_ms: z.number().nonnegative(),
+    improvement_pct: z.number(),
+  }).nullish(),
   notes: z.array(z.string()).default([]),
   created_at: z.string().nullish(),
 });
@@ -180,7 +194,7 @@ export const constraintsSchema = z.object({
 export type Constraints = z.infer<typeof constraintsSchema>;
 
 export const optimizeConfigSchema = z.object({
-  algorithm: z.enum(["classical_greedy", "classical_2opt", "quantum_simulated"]),
+  algorithm: z.enum(["classical_greedy", "classical_2opt", "hybrid", "quantum_simulated"]),
   objective: z.enum(["distance", "time", "cost"]),
 });
 export type OptimizeConfig = z.infer<typeof optimizeConfigSchema>;

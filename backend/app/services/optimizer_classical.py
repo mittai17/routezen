@@ -42,12 +42,21 @@ def solve_classical(
     return_to_depot: bool = True,
     time_limit_s: int = 5,
     horizon_min: float = 1440,
+    initial_routes: dict[str, list[str]] | None = None,
+    starts: list[int] | None = None,
+    ends: list[int] | None = None,
+    customer_nodes: list[int] | None = None,
 ) -> OptimizationResult:
     t0 = time.perf_counter()
     weights = weights or OptWeights()
     notes: list[str] = []
-    _validate_matrix(distance_km, len(stops) + 1, "distance_km")
-    _validate_matrix(duration_min, len(stops) + 1, "duration_min")
+    matrix_size = len(distance_km)
+    if starts is None:
+        _validate_matrix(distance_km, len(stops) + 1, "distance_km")
+        _validate_matrix(duration_min, len(stops) + 1, "duration_min")
+    else:
+        _validate_matrix(distance_km, matrix_size, "distance_km")
+        _validate_matrix(duration_min, matrix_size, "duration_min")
     ids = [s.id for s in stops]
     if len(set(ids)) != len(ids):
         raise ValueError("stop ids must be unique")
@@ -70,22 +79,30 @@ def solve_classical(
         unassigned = [Unassigned(stop_id=s.id, reason="No available vehicles") for s in stops]
         return finish(OptimizationResult(status="infeasible", unassigned=unassigned))
 
+    v_starts = starts if starts is not None else [0] * len(active)
+    v_ends = ends if ends is not None else [0] * len(active)
+    cust_nodes = customer_nodes if customer_nodes is not None else list(range(1, len(stops) + 1))
+
     # ---- pre-checks that give precise reasons
     max_w = max(v.payload_kg for v in active)
     max_v = max(v.volume_m3 for v in active)
     keep: list[int] = []  # original stop indices (0-based into `stops`)
     for i, s in enumerate(stops):
         reason = None
+        c_node = cust_nodes[i]
+        dur_from_start = min(duration_min[st][c_node] for st in set(v_starts))
         if s.weight_kg > max_w:
             reason = f"Weight {s.weight_kg:g} kg exceeds the largest available vehicle payload ({max_w:g} kg)"
         elif s.volume_m3 > max_v:
             reason = f"Volume {s.volume_m3:g} m3 exceeds the largest available vehicle volume ({max_v:g} m3)"
-        elif s.window_end_min is not None and duration_min[0][i + 1] > s.window_end_min:
+        elif s.window_end_min is not None and dur_from_start > s.window_end_min:
             reason = (
-                f"Unreachable before window closes: {duration_min[0][i + 1]:.0f} min from depot, "
+                f"Unreachable before window closes: {dur_from_start:.0f} min from depot, "
                 f"window ends at {s.window_end_min:g} min"
             )
-        elif duration_min[0][i + 1] > horizon_min:
+        elif s.window_start_min is not None and s.window_start_min > horizon_min:
+            reason = "Time window starts after the planning horizon"
+        elif dur_from_start > horizon_min:
             reason = "Unreachable within the planning horizon"
         if reason:
             unassigned.append(Unassigned(stop_id=s.id, reason=reason))
@@ -94,9 +111,16 @@ def solve_classical(
     if not keep:
         return finish(OptimizationResult(status="infeasible", unassigned=unassigned))
 
-    nodes = [0] + [i + 1 for i in keep]  # solver node -> matrix index
+    terminals = list(dict.fromkeys(v_starts + v_ends))
+    customer_nodes_kept = [cust_nodes[i] for i in keep]
+    nodes = terminals + customer_nodes_kept
+    node_map = {orig: idx for idx, orig in enumerate(nodes)}
+    mapped_starts = [node_map[s] for s in v_starts]
+    mapped_ends = [node_map[e] for e in v_ends]
+    end_set = set(mapped_ends)
     n = len(nodes)
-    sub_stops = [None] + [stops[i] for i in keep]
+    cust_mapped = {node_map[cust_nodes[i]]: stops[i] for i in keep}
+    sub_stops = [cust_mapped.get(idx) for idx in range(n)]
     D = [[distance_km[a][b] for b in nodes] for a in nodes]
     T = [[duration_min[a][b] for b in nodes] for a in nodes]
 
@@ -110,7 +134,7 @@ def solve_classical(
     wsum = weights.distance + weights.time + weights.cost + weights.emissions
 
     def arc_cost(v: OptVehicle, i: int, j: int) -> int:
-        if j == 0 and not return_to_depot:
+        if j in end_set and not return_to_depot:
             return 0
         d, t = D[i][j], T[i][j]
         val = (
@@ -121,7 +145,10 @@ def solve_classical(
         ) / wsum
         return int(round(val * 1000))
 
-    manager = pywrapcp.RoutingIndexManager(n, len(active), 0)
+    if all(s == 0 for s in mapped_starts) and all(e == 0 for e in mapped_ends):
+        manager = pywrapcp.RoutingIndexManager(n, len(active), 0)
+    else:
+        manager = pywrapcp.RoutingIndexManager(n, len(active), mapped_starts, mapped_ends)
     routing = pywrapcp.RoutingModel(manager)
 
     for k, v in enumerate(active):
@@ -132,12 +159,12 @@ def solve_classical(
         routing.SetFixedCostOfVehicle(int(round(1000 * weights.cost / wsum * v.fixed_cost / maxc)), k)
 
     # time dimension (service time of the origin node is added to each arc)
-    svc = [0] + [int(round(s.service_minutes * 60)) for s in sub_stops[1:]]  # type: ignore[union-attr]
+    svc = [int(round(s.service_minutes * 60)) if s is not None else 0 for s in sub_stops]
     Ts = [[int(round(T[i][j] * 60)) for j in range(n)] for i in range(n)]
 
     def time_cb(a: int, b: int) -> int:
         i, j = manager.IndexToNode(a), manager.IndexToNode(b)
-        if j == 0 and not return_to_depot:
+        if j in end_set and not return_to_depot:
             return svc[i]
         return Ts[i][j] + svc[i]
 
@@ -145,14 +172,14 @@ def solve_classical(
     horizon = int(horizon_min * 60)
     routing.AddDimension(tcb, horizon, horizon, True, "Time")
     tdim = routing.GetDimensionOrDie("Time")
-    for node in range(1, n):
+    for node in cust_mapped:
         s = sub_stops[node]
         lo = int(round((s.window_start_min or 0) * 60))  # type: ignore[union-attr]
         hi = int(round((s.window_end_min if s.window_end_min is not None else horizon_min) * 60))  # type: ignore[union-attr]
         tdim.CumulVar(manager.NodeToIndex(node)).SetRange(lo, min(hi, horizon))
 
     def demand_cb(attr: str, scale: int):
-        vals = [0] + [int(math.ceil(getattr(s, attr) * scale - 1e-9)) for s in sub_stops[1:]]  # type: ignore[union-attr]
+        vals = [int(math.ceil(getattr(s, attr) * scale - 1e-9)) if s is not None else 0 for s in sub_stops]
         return routing.RegisterUnaryTransitCallback(lambda a: vals[manager.IndexToNode(a)])
 
     routing.AddDimensionWithVehicleCapacity(
@@ -161,24 +188,35 @@ def solve_classical(
     routing.AddDimensionWithVehicleCapacity(
         demand_cb("volume_m3", 1000), 0, [int(math.floor(v.volume_m3 * 1000 + 1e-9)) for v in active], True, "Volume"
     )
-    ones = routing.RegisterUnaryTransitCallback(lambda a: 0 if manager.IndexToNode(a) == 0 else 1)
-    routing.AddDimensionWithVehicleCapacity(ones, 0, [min(v.max_stops, n - 1) for v in active], True, "Stops")
+    ones = routing.RegisterUnaryTransitCallback(lambda a: 1 if manager.IndexToNode(a) in cust_mapped else 0)
+    routing.AddDimensionWithVehicleCapacity(ones, 0, [min(v.max_stops, len(cust_mapped)) for v in active], True, "Stops")
 
-    for node in range(1, n):
+    for node in cust_mapped:
         routing.AddDisjunction([manager.NodeToIndex(node)], DROP_PENALTY)
 
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-    if n - 1 >= 4:
+    if len(cust_mapped) >= 4:
         params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     params.time_limit.FromSeconds(int(time_limit_s))
 
-    solution = routing.SolveWithParameters(params)
+    solution = None
+    if initial_routes is not None:
+        node_by_id = {stops[original].id: node_map[cust_nodes[original]] for original in keep}
+        seed = [[node_by_id[sid] for sid in initial_routes.get(v.vehicle_id, []) if sid in node_by_id] for v in active]
+        assignment = routing.ReadAssignmentFromRoutes(seed, True)
+        if assignment is not None:
+            solution = routing.SolveFromAssignmentWithParameters(assignment, params)
+            notes.append("Quantum-proposed route seed validated by OR-Tools before refinement.")
+        else:
+            notes.append("Proposed route seed was infeasible; OR-Tools restarted without it.")
+    if solution is None:
+        solution = routing.SolveWithParameters(params)
     if solution is None:
         notes.append(f"Solver returned no solution (status code {routing.status()}).")
         unassigned += [
             Unassigned(stop_id=sub_stops[i].id, reason="No feasible assignment found")  # type: ignore[union-attr]
-            for i in range(1, n)
+            for i in cust_mapped
         ]
         return finish(OptimizationResult(status="infeasible", unassigned=unassigned))
 
@@ -186,30 +224,32 @@ def solve_classical(
     served: set[int] = set()
     for k, v in enumerate(active):
         idx = routing.Start(k)
-        prev = 0
+        prev = manager.IndexToNode(idx)
         cum_d = cum_w = cum_v = 0.0
         visits: list[StopVisit] = []
         idx = solution.Value(routing.NextVar(idx))
         while not routing.IsEnd(idx):
             node = manager.IndexToNode(idx)
             s = sub_stops[node]
-            cum_d += D[prev][node]
-            cum_w += s.weight_kg  # type: ignore[union-attr]
-            cum_v += s.volume_m3  # type: ignore[union-attr]
-            arr = solution.Min(tdim.CumulVar(idx)) / 60
-            visits.append(
-                StopVisit(
-                    stop_id=s.id, arrival_min=round(arr, 2),  # type: ignore[union-attr]
-                    departure_min=round(arr + s.service_minutes, 2),  # type: ignore[union-attr]
-                    cumulative_distance_km=round(cum_d, 3), load_kg=round(cum_w, 3), load_m3=round(cum_v, 4),
+            if s is not None:
+                cum_d += D[prev][node]
+                cum_w += s.weight_kg  # type: ignore[union-attr]
+                cum_v += s.volume_m3  # type: ignore[union-attr]
+                arr = solution.Min(tdim.CumulVar(idx)) / 60
+                visits.append(
+                    StopVisit(
+                        stop_id=s.id, arrival_min=round(arr, 2),  # type: ignore[union-attr]
+                        departure_min=round(arr + s.service_minutes, 2),  # type: ignore[union-attr]
+                        cumulative_distance_km=round(cum_d, 3), load_kg=round(cum_w, 3), load_m3=round(cum_v, 4),
+                    )
                 )
-            )
-            served.add(node)
-            prev = node
+                served.add(node)
+                prev = node
             idx = solution.Value(routing.NextVar(idx))
         if not visits:
             continue
-        dist = cum_d + (D[prev][0] if return_to_depot else 0.0)
+        end_node = manager.IndexToNode(idx)
+        dist = cum_d + (D[prev][end_node] if return_to_depot else 0.0)
         dur = solution.Min(tdim.CumulVar(routing.End(k))) / 60
         routes.append(
             VehicleRoute(
@@ -220,7 +260,7 @@ def solve_classical(
             )
         )
 
-    for node in range(1, n):
+    for node in cust_mapped:
         if node not in served:
             unassigned.append(
                 Unassigned(

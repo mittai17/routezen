@@ -47,6 +47,14 @@ const vehicleRoute = z.object({
   vehicle_id: z.string(), stops: z.array(stopVisit), distance_km: num, duration_min: num,
   load_kg: num, load_m3: num, cost: num, emissions_g: num,
 });
+export const hybridMetadataSchema = z.object({
+  simulation: z.boolean(), disclaimer: z.string(), objective: z.string(),
+  baseline_distance_km: num, baseline_duration_min: num,
+  baseline_objective: num.nullish(), candidate_objective: num.nullish(),
+  selected: z.enum(["quantum_seeded", "classical_baseline"]),
+  clusters_attempted: num, clusters_solved: num, quantum_runtime_ms: num,
+  improvement_pct: num, clusters: z.array(z.object({ stop_ids: z.array(z.string()), status: z.string(), n_qubits: num.nullish(), cost: num.nullish(), brute_force_cost: num.nullish(), gap_vs_brute_force_pct: num.nullish(), order: z.array(z.string()).default([]) }).passthrough()),
+});
 export const classicalResultSchema = z.object({
   solver: z.string(),
   status: z.enum(["solved", "partial", "infeasible", "empty", "error"]),
@@ -56,6 +64,8 @@ export const classicalResultSchema = z.object({
   objective: num.nullish(), runtime_ms: num.default(0), time_limit_s: num.default(0),
   distance_source: z.string().default("provided"), fallback_estimate: z.boolean().default(false),
   notes: z.array(z.string()).default([]),
+  // Pydantic includes `hybrid: null` on ordinary classical results.
+  hybrid: hybridMetadataSchema.nullish(),
 });
 export type ClassicalResult = z.infer<typeof classicalResultSchema>;
 
@@ -82,11 +92,11 @@ const runBase = {
   error: z.string().nullish(),
 };
 export const runRecordSchema = z.discriminatedUnion("kind", [
-  z.object({ ...runBase, kind: z.literal("classical"), result: classicalResultSchema.nullish().catch(null) }),
+  z.object({ ...runBase, kind: z.enum(["classical", "hybrid"]), result: classicalResultSchema.nullish().catch(null) }),
   z.object({ ...runBase, kind: z.literal("quantum"), result: quantumResultSchema.nullish().catch(null) }),
 ]);
 export type RunRecord = z.infer<typeof runRecordSchema>;
-export type ClassicalRun = Extract<RunRecord, { kind: "classical" }>;
+export type ClassicalRun = Extract<RunRecord, { kind: "classical" | "hybrid" }>;
 export type QuantumRun = Extract<RunRecord, { kind: "quantum" }>;
 
 const pageSchema = z.object({ items: z.array(runRecordSchema), total: num, limit: num, offset: num });
@@ -170,9 +180,9 @@ export const optimizationApi = {
     return request(`/optimization/runs/${encodeURIComponent(id)}`, { schema: runRecordSchema });
   },
 
-  async start(kind: "classical" | "quantum"): Promise<RunRecord> {
+  async start(kind: "classical" | "quantum" | "hybrid"): Promise<RunRecord> {
     if (USE_DEMO_DATA) throw new ApiError("unavailable", "Starting runs is disabled in demo mode. Set NEXT_PUBLIC_USE_DEMO_DATA=false to use the backend.");
-    const body = kind === "classical" ? sampleClassicalRequest() : sampleQuantumRequest();
+    const body = kind !== "quantum" ? sampleClassicalRequest() : sampleQuantumRequest();
     const rec = await request(`/optimization/${kind}`, { method: "POST", schema: runRecordSchema, timeoutMs: longTimeout, body });
     rememberDepot(rec.id, body.depot);
     return rec;

@@ -232,7 +232,7 @@ function Body({ r, runsNote }: { r: AnalyticsResult; runsNote?: string | null })
                     <thead className="text-muted-foreground"><tr><th scope="col" className="py-1.5">Solver</th><th scope="col">Runs</th><th scope="col">Succeeded</th><th scope="col">Failed / cancelled</th><th scope="col">Avg runtime</th></tr></thead>
                     <tbody>
                       {r.solvers.map((s) => (
-                        <tr key={s.kind} className="border-t border-border"><th scope="row" className="py-1.5 font-medium capitalize">{s.kind === "quantum" ? "Quantum (simulated)" : "Classical (OR-Tools)"}</th><td>{s.runs}</td><td>{s.succeeded}</td><td>{s.failed}</td><td>{s.avgRuntimeMs === null ? dash : `${formatNumber(s.avgRuntimeMs, 0)} ms`}</td></tr>
+                        <tr key={s.kind} className="border-t border-border"><th scope="row" className="py-1.5 font-medium capitalize">{s.kind === "quantum" ? "Quantum (simulated)" : s.kind === "hybrid" ? "Hybrid (Aer + OR-Tools)" : "Classical (OR-Tools)"}</th><td>{s.runs}</td><td>{s.succeeded}</td><td>{s.failed}</td><td>{s.avgRuntimeMs === null ? dash : `${formatNumber(s.avgRuntimeMs, 0)} ms`}</td></tr>
                       ))}
                     </tbody>
                   </table>

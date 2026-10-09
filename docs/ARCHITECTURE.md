@@ -29,7 +29,7 @@ Vehicles: `GET/POST /vehicles`, `GET/PUT/DELETE /vehicles/{id}`; VehicleProfile 
 Routing: `POST /routing/route {coordinates:[{lat,lng}]}` → `{distance_km,duration_min,geometry:[[lat,lng],...],legs:[...],provider}`; `POST /routing/matrix {coordinates}` → `{distance_km:[[]],duration_min:[[]],provider}`; `GET /routing/status`.
 Recommend: `POST /recommendations {package(s), depot, preferences, vehicle_ids?}` → list of `{package_id, recommended, alternatives[], ineligible[{vehicle_id,reasons[]}], distance_km, duration_min, explanation, assumptions[]}`; each option has `{vehicle_id,name,category,energy_used,energy_unit,variable_cost,fixed_cost,total_cost,cost_per_km,payload_utilisation,volume_utilisation,deadline_feasible,score}`.
 Plans: `GET/POST /plans`, `GET/PUT/DELETE /plans/{id}`, `POST /plans/validate`.
-Optimization: `POST /optimization/classical`, `POST /optimization/quantum` (async job → run id), `GET /optimization/runs`, `GET /optimization/runs/{id}`, `POST /optimization/runs/{id}/cancel`, `GET /optimization/compare?classical=&quantum=`.
+Optimization: `POST /optimization/classical`, `POST /optimization/quantum`, `POST /optimization/hybrid` (async job → persistent run id), `GET /optimization/runs`, `GET /optimization/runs/{id}`, `POST /optimization/runs/{id}/cancel`, `GET /optimization/compare?classical=&quantum=`. Hybrid uses simulated QAOA proposals as OR-Tools seeds and retains the classical baseline on regression or infeasibility.
 Scenarios: `GET/POST /scenarios`, `GET/PUT/DELETE /scenarios/{id}`, `POST /scenarios/{id}/run`, `POST /scenarios/compare`.
 Analytics: `GET /analytics/summary|cost|energy|vehicles|optimization`. Reports: `GET /reports/{kind}.csv`.
 Events: `GET/POST /events`.

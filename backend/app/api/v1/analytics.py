@@ -71,7 +71,7 @@ def optimization(runs: RunManager = Depends(get_run_manager)) -> dict[str, Any]:
         "total_runs": total,
         "by_kind_status": [{"kind": k, "status": s, "count": c} for (k, s), c in sorted(by.items())],
         "avg_runtime_ms": round(sum(rt) / len(rt), 1) if rt else None,
-        "note": "Run history is in-memory and resets when the server restarts.",
+        "note": "Run history is persisted in the application database.",
     }
 
 

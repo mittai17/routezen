@@ -46,4 +46,5 @@ export interface OptimizationRequest {
   algorithm: string;
   objective: string;
   max_vehicles: number;
+  constraints?: import("@/lib/schemas").Constraints;
 }

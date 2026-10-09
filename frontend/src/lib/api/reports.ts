@@ -184,7 +184,7 @@ export function buildReport(kind: ReportKind, input: ReportInput, preset: RangeP
       doc.sections.push({
         title: "Runs by solver", note: "Quantum figures come from a classical simulation of QAOA (Qiskit Aer). No quantum advantage is claimed.",
         columns: [T("Solver"), N("Runs", "count", "observed", 0), N("Succeeded", "count", "observed", 0), N("Failed / cancelled", "count", "observed", 0), N("Avg runtime", "ms", "observed", 0)],
-        rows: a.solvers.every((s) => s.runs === 0) ? [] : a.solvers.map((s): Cell[] => [s.kind === "quantum" ? "Quantum (simulated)" : "Classical (OR-Tools)", s.runs, s.succeeded, s.failed, rd(s.avgRuntimeMs, 0)]),
+        rows: a.solvers.every((s) => s.runs === 0) ? [] : a.solvers.map((s): Cell[] => [s.kind === "quantum" ? "Quantum (simulated)" : s.kind === "hybrid" ? "Hybrid (simulated QAOA + OR-Tools)" : "Classical (OR-Tools)", s.runs, s.succeeded, s.failed, rd(s.avgRuntimeMs, 0)]),
       });
       doc.sections.push({
         title: "Simulated quantum runs vs references", note: "Costs are in distance-matrix units (usually km).",
