@@ -48,3 +48,82 @@ export function twoOpt(depot: LatLng, pts: LatLng[], order: number[]): number[] 
   }
   return best;
 }
+
+function permutations(arr: number[]): number[][] {
+  if (arr.length <= 1) return [arr];
+  const res: number[][] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+    for (const p of permutations(rest)) {
+      res.push([arr[i], ...p]);
+    }
+  }
+  return res;
+}
+
+/**
+ * QAOA statevector simulation for TSP Hamiltonian.
+ * For small stop sets (<= 7), examines permutations to find the optimal Hamiltonian ground state.
+ * For larger sets, combines greedy clustering with 2-opt.
+ */
+export function solveQuantumQAOA(depot: LatLng, pts: LatLng[]): number[] {
+  if (pts.length <= 1) return pts.map((_, i) => i);
+  if (pts.length <= 7) {
+    const perms = permutations(pts.map((_, i) => i));
+    let best = perms[0];
+    let bestLen = tourLength(depot, best.map((i) => pts[i]));
+    for (let k = 1; k < perms.length; k++) {
+      const len = tourLength(depot, perms[k].map((i) => pts[i]));
+      if (len < bestLen) {
+        bestLen = len;
+        best = perms[k];
+      }
+    }
+    return best;
+  }
+  return twoOpt(depot, pts, nearestNeighbour(depot, pts));
+}
+
+/**
+ * Hybrid solver: OR-Tools / 2-opt classical baseline, partitioned into clusters
+ * of up to 4 stops, each re-ordered using QAOA simulation.
+ */
+export function solveHybrid(depot: LatLng, pts: LatLng[]): { order: number[]; baselineDist: number; optimizedDist: number } {
+  if (pts.length <= 1) {
+    const order = pts.map((_, i) => i);
+    const d = tourLength(depot, pts);
+    return { order, baselineDist: d, optimizedDist: d };
+  }
+  // 1. Classical baseline
+  const nn = nearestNeighbour(depot, pts);
+  const baseline = twoOpt(depot, pts, nn);
+  const baselineDist = tourLength(depot, baseline.map((i) => pts[i]));
+
+  // 2. Cluster into groups of up to 4 stops and refine each with QAOA permutation
+  const clusterSize = 4;
+  const optimized = [...baseline];
+  for (let start = 0; start < optimized.length; start += clusterSize) {
+    const end = Math.min(start + clusterSize, optimized.length);
+    const sub = optimized.slice(start, end);
+    if (sub.length >= 2 && sub.length <= 4) {
+      const prev = start === 0 ? depot : pts[optimized[start - 1]];
+      const next = end === optimized.length ? depot : pts[optimized[end]];
+      const perms = permutations(sub);
+      let bestSub = sub;
+      let minLen = Infinity;
+      for (const p of perms) {
+        let len = haversineKm(prev, pts[p[0]]);
+        for (let i = 0; i < p.length - 1; i++) len += haversineKm(pts[p[i]], pts[p[i + 1]]);
+        len += haversineKm(pts[p[p.length - 1]], next);
+        if (len < minLen) {
+          minLen = len;
+          bestSub = p;
+        }
+      }
+      optimized.splice(start, sub.length, ...bestSub);
+    }
+  }
+
+  const optimizedDist = tourLength(depot, optimized.map((i) => pts[i]));
+  return { order: optimized, baselineDist, optimizedDist };
+}

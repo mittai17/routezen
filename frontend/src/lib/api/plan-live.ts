@@ -142,14 +142,14 @@ export async function liveOptimize(
   }
   if (!seconds || !Number.isFinite(seconds)) seconds = 0;
 
-  // Road geometry for the visit order. Failure => routing unavailable, never a straight line.
+  // Road geometry for the visit order. Falls back to connecting path line if OSRM is unavailable.
   let geometry: [number, number][] | null = null;
   let routingAvailable = false;
   const byId = new Map(req.stops.map((s) => [s.id, s]));
   const ordered = order.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => Boolean(s));
   const routes = (res.routes as unknown[] | undefined) ?? [];
   if (routes.length > 1) notes.push("See Optimization Results for separate vehicle route maps.");
-  if (ordered.length > 0 && routes.length <= 1) {
+  if (ordered.length > 0) {
     const coords = [req.depot, ...ordered.map((s) => ({ lat: s.latitude, lng: s.longitude })), ...(returnToDepot ? [req.depot] : [])].map((c) => ({ lat: c.lat, lng: c.lng }));
     try {
       const r = await request("/routing/route", { method: "POST", body: { coordinates: coords }, schema: routeResultSchema, timeoutMs: 30_000 });
@@ -159,7 +159,12 @@ export async function liveOptimize(
         if (quantum || distance == null) { distance = r.distance_km; duration = r.duration_min; isEstimate = false; }
       }
     } catch {
-      notes.push("Road routing was unavailable, so no route line is drawn.");
+      notes.push("Road routing was unavailable; showing connecting path line between stops.");
+    }
+    // Fallback: connecting path line between all nodes
+    if (!geometry || geometry.length <= 1) {
+      geometry = coords.map((c) => [c.lat, c.lng] as [number, number]);
+      routingAvailable = false;
     }
   }
 

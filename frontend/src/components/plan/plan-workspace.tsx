@@ -41,7 +41,7 @@ export function PlanWorkspace() {
 
   const go = (s: number) => dispatch({ type: "goto", step: s });
   const canNext = step === 0 ? stops.length > 0 : step === 3 ? !!run : step < 4;
-  const showRun = !!run && step === 4;
+  const showRun = !!run;
 
   const orderIndex = new Map(showRun ? run!.order.map((id, i) => [id, i + 1]) : []);
   const mapStops: MapStop[] = (showRun ? [...stops].sort((a, b) => (orderIndex.get(a.id) ?? 99) - (orderIndex.get(b.id) ?? 99)) : stops).map((s, i) => ({

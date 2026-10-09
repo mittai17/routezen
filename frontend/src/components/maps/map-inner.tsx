@@ -52,7 +52,14 @@ export default function MapInner({ stops, depot, geometry, height = "100%", clas
           <TileLayer key="esri" attribution="Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
         )}
         <Fit points={points} />
-        {hasGeometry && <Polyline positions={geometry!} pathOptions={{ color: "#16a34a", weight: 5, opacity: 0.9 }} />}
+        {hasGeometry && (
+          <>
+            {/* White underline for contrast */}
+            <Polyline positions={geometry!} pathOptions={{ color: "#ffffff", weight: 10, opacity: 0.7 }} />
+            {/* Colored route line */}
+            <Polyline positions={geometry!} pathOptions={{ color: "#16a34a", weight: 6, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+          </>
+        )}
         {depot && (
           <Marker position={[depot.lat, depot.lng]} icon={homeIcon}>
             <Tooltip permanent direction="right" className="rz-label">{depot.label}</Tooltip>
