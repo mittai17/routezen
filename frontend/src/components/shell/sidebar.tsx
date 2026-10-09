@@ -14,23 +14,30 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Link href="/" onClick={onNavigate} className="px-4 pb-5 pt-5" aria-label="RouteZen home">
         <Logo className="[&_div]:text-sidebar-foreground [&_.text-brand]:text-brand" />
       </Link>
-      <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+      <nav aria-label="Main" className="flex-1 space-y-0.5 overflow-y-auto px-3">
+        {NAV_ITEMS.map(({ label, href, icon: Icon, section }, idx) => {
           const active = isActive(href);
+          const showSection = section && (idx === 0 || NAV_ITEMS[idx - 1].section !== section);
           return (
-            <Link
-              key={href}
-              href={href}
-              onClick={onNavigate}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex h-10 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors",
-                active ? "bg-brand text-brand-foreground shadow-sm" : "text-sidebar-foreground/90 hover:bg-sidebar-elevated",
+            <div key={href}>
+              {showSection && (
+                <p className="mb-0.5 mt-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-muted first:mt-1">
+                  {section}
+                </p>
               )}
-            >
-              <Icon className="size-[18px] shrink-0" />
-              <span className="truncate">{label}</span>
-            </Link>
+              <Link
+                href={href}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex h-10 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors",
+                  active ? "bg-brand text-brand-foreground shadow-sm" : "text-sidebar-foreground/90 hover:bg-sidebar-elevated",
+                )}
+              >
+                <Icon className="size-[18px] shrink-0" />
+                <span className="truncate">{label}</span>
+              </Link>
+            </div>
           );
         })}
       </nav>

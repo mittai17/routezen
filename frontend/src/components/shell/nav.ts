@@ -1,8 +1,11 @@
-import { BarChart3, FileText, Gauge, LayoutDashboard, MapPin, Navigation, Package, Radio, Settings, Truck, Layers, type LucideIcon } from "lucide-react";
+import { BarChart3, FileText, Gauge, LayoutDashboard, MapPin, Navigation, Package, Radio, Settings, Truck, Layers, Plane, type LucideIcon } from "lucide-react";
 
-export interface NavItem { label: string; href: string; icon: LucideIcon }
+export interface NavItem { label: string; href: string; icon: LucideIcon; section?: string }
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", href: "/overview", icon: LayoutDashboard },
+  // ── Smart Travel ──
+  { label: "Smart Travel", href: "/smart-travel", icon: Plane, section: "Travel" },
+  // ── Delivery ──
+  { label: "Overview", href: "/overview", icon: LayoutDashboard, section: "Delivery" },
   { label: "Plan Delivery", href: "/plan", icon: Navigation },
   { label: "Locations", href: "/locations", icon: MapPin },
   { label: "Packages", href: "/packages", icon: Package },

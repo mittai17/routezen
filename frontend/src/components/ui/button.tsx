@@ -10,6 +10,8 @@ export const buttonVariants = cva(
       variant: {
         primary: "bg-brand text-brand-foreground shadow-sm hover:bg-brand-hover",
         secondary: "border border-border bg-card text-foreground hover:bg-muted",
+        outline: "border border-border bg-card text-foreground hover:bg-muted",
+        default: "bg-brand text-brand-foreground shadow-sm hover:bg-brand-hover",
         ghost: "text-foreground hover:bg-muted",
         danger: "bg-danger text-white hover:bg-danger/90",
         success: "bg-success text-white hover:bg-success/90",
