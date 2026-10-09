@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- Design tokens (light default) ---------- */
+:root {
+  --background: #f6f7f9;
+  --foreground: #101828;
+  --card: #ffffff;
+  --card-foreground: #101828;
+  --muted: #f2f4f7;
+  --muted-foreground: #667085;
+  --border: #e6e8ec;
+  --input: #d0d5dd;
+  --ring: #e0a800;
+
+  --brand: #ffc629;
+  --brand-hover: #f5b800;
+  --brand-foreground: #1a1405;
+  --brand-soft: #fff6d6;
+
+  --sidebar: #0b0f14;
+  --sidebar-elevated: #151b23;
+  --sidebar-foreground: #e7eaee;
+  --sidebar-muted: #8b95a3;
+  --sidebar-border: #1f2731;
+
+  --success: #16a34a;
+  --success-soft: #e3f6ea;
+  --warning: #d97706;
+  --warning-soft: #fef0d8;
+  --danger: #dc2626;
+  --danger-soft: #fde8e8;
+  --info: #2563eb;
+  --info-soft: #e3ecfd;
+  --violet: #7c3aed;
+  --violet-soft: #efe7fd;
+
+  --chart-1: #22c55e;
+  --chart-2: #fbbf24;
+  --chart-3: #93b4f5;
+  --chart-4: #b4bccb;
+  --chart-5: #8b5cf6;
+  --chart-6: #f87171;
+  --chart-7: #f9a8d4;
+
+  --radius-card: 16px;
+  --radius-control: 10px;
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-pop: 0 12px 32px rgb(16 24 40 / 0.16);
+  --focus-ring: 0 0 0 3px rgb(255 198 41 / 0.45);
+}
+
+.dark {
+  --background: #0d1117;
+  --foreground: #e8ebf0;
+  --card: #151b23;
+  --card-foreground: #e8ebf0;
+  --muted: #1c232d;
+  --muted-foreground: #9aa4b2;
+  --border: #252e3a;
+  --input: #344050;
+  --ring: #ffc629;
+  --brand-soft: #3a2f0c;
+  --sidebar: #070a0e;
+  --sidebar-elevated: #11161d;
+  --success-soft: #11301d;
+  --warning-soft: #3a2a0c;
+  --danger-soft: #3b1515;
+  --info-soft: #14284d;
+  --violet-soft: #2a1d4d;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.5);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-elevated: var(--sidebar-elevated);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --radius-card: var(--radius-card);
+  --radius-control: var(--radius-control);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* { border-color: var(--border); }
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 8px; }
+button:not(:disabled), [role="button"] { cursor: pointer; }
+
+/* Leaflet integration */
+.leaflet-container { font-family: inherit; background: var(--muted); }
+.rz-marker { background: transparent; border: 0; }
+.rz-pin {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); border: 2px solid #fff; color: #fff; font-weight: 700; font-size: 13px;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+}
+.rz-pin > span { transform: rotate(45deg); }
+.rz-label {
+  background: #fff; color: #101828; border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 600;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+@keyframes rz-shimmer { 100% { transform: translateX(100%); } }
