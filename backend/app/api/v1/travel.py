@@ -129,8 +129,15 @@ def reorder_checkpoints(trip_id: str, checkpoint_ids: list[str], repo: TravelRep
 
 # ── Route Alternatives ─────────────────────────────────────────────────────
 
+@router.get("/trips/{trip_id}/route-options", response_model=list[TravelRouteOptionOut])
+def get_route_options(trip_id: str, repo: TravelRepository = Depends(_repo)):
+    """Return previously saved route options for a trip (no re-computation)."""
+    return repo.list_route_options(trip_id)
+
+
 @router.post("/trips/{trip_id}/route-options", response_model=list[TravelRouteOptionOut])
 async def generate_route_options(trip_id: str, repo: TravelRepository = Depends(_repo)):
+    """Generate (or regenerate) route alternatives using OSRM road geometry, save and return them."""
     trip = repo.get_trip(trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -156,6 +163,7 @@ async def generate_route_options(trip_id: str, repo: TravelRepository = Depends(
         travel_mode=trip.travel_mode,
     )
     return repo.save_route_options(trip_id, options)
+
 
 
 # ── Places (Stays, Dining, Sightseeing) ─────────────────────────────────────

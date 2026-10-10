@@ -6,7 +6,7 @@
  */
 import * as React from "react";
 import L from "leaflet";
-import { MapContainer, Marker, Polyline, TileLayer, Tooltip, ZoomControl, useMap, Circle } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import type { TravelCheckpoint, TravelPlace } from "@/lib/api/travel";
 import { cn } from "@/lib/utils";
 
@@ -66,23 +66,57 @@ const PLACE_COLORS: Record<string, string> = {
   attraction: "#0284c7",
 };
 
+/** Fit the map to the given bounds. Uses a stable, small key to avoid performance issues with large geometry arrays. */
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
-  const key = points.map(p => p.join(",")).join("|");
+  // Use a lightweight key: just count + first/last point, NOT full array stringification
+  const key = points.length > 0
+    ? `${points.length}|${points[0].join(",")},${points[points.length - 1].join(",")}`
+    : "empty";
+
   React.useEffect(() => {
-    if (!points.length) { map.setView(INDIA_CENTER, 5); return; }
-    if (points.length === 1) { map.setView(points[0], 10); return; }
-    map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 12 });
+    if (!map) return;
+    if (points.length === 0) {
+      try { map.setView(INDIA_CENTER, 5); } catch { /* map may be unmounted */ }
+      return;
+    }
+    if (points.length === 1) {
+      try { map.setView(points[0], 10); } catch { /* map may be unmounted */ }
+      return;
+    }
+    try {
+      map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 14, animate: true });
+    } catch { /* map may be unmounted */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, map]);
+  }, [key]);
   return null;
 }
 
-export default function TravelRouteMap({ routes = [], checkpoints = [], places = [], height = "100%", className, selectedCheckpointId }: TravelMapProps) {
+/** Custom zoom control to avoid ZoomControl lifecycle issues on mapContainer */
+function ZoomControlCustom() {
+  const map = useMapEvents({});
+  React.useEffect(() => {
+    if (!map) return;
+    const ctrl = L.control.zoom({ position: "bottomright" });
+    try { ctrl.addTo(map); } catch { /* map may not be ready */ }
+    return () => { try { ctrl.remove(); } catch { /* ignore */ } };
+  }, [map]);
+  return null;
+}
+
+export default function TravelRouteMap({
+  routes = [],
+  checkpoints = [],
+  places = [],
+  height = "100%",
+  className,
+  selectedCheckpointId,
+}: TravelMapProps) {
   const [layer, setLayer] = React.useState<"map" | "satellite">("map");
   const [autoGeometry, setAutoGeometry] = React.useState<[number, number][]>([]);
 
   // If no routes are passed but checkpoints >= 2, auto-fetch road geometry connecting checkpoints
+  const cpKey = checkpoints.map(c => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`).join("|");
   React.useEffect(() => {
     if (routes.length === 0 && checkpoints.length >= 2) {
       let isMounted = true;
@@ -91,7 +125,9 @@ export default function TravelRouteMap({ routes = [], checkpoints = [], places =
         .then(r => r.json())
         .then(data => {
           if (isMounted && data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
-            const geom = data.routes[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [Number(lat.toFixed(5)), Number(lng.toFixed(5))] as [number, number]);
+            const geom = data.routes[0].geometry.coordinates.map(
+              ([lng, lat]: [number, number]) => [Number(lat.toFixed(5)), Number(lng.toFixed(5))] as [number, number]
+            );
             setAutoGeometry(geom);
           }
         })
@@ -100,62 +136,109 @@ export default function TravelRouteMap({ routes = [], checkpoints = [], places =
     } else {
       setAutoGeometry([]);
     }
-  }, [routes.length, checkpoints]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes.length, cpKey]);
 
-  const allPoints: [number, number][] = [
-    ...checkpoints.map(c => [c.lat, c.lng] as [number, number]),
-    ...routes.flatMap(r => r.geometry),
-    ...autoGeometry,
-  ];
+  // Use only checkpoint positions for FitBounds (not full geometry — too many points to stringify)
+  const cpPoints: [number, number][] = checkpoints.map(c => [c.lat, c.lng]);
+  // If we have route geometry, use first + last point for bounds calculation too
+  const activeRoute = routes.find(r => r.active) ?? routes[0];
+  const boundsPoints: [number, number][] = cpPoints.length > 0
+    ? cpPoints
+    : activeRoute?.geometry?.length
+      ? [activeRoute.geometry[0], activeRoute.geometry[activeRoute.geometry.length - 1]]
+      : autoGeometry.length
+        ? [autoGeometry[0], autoGeometry[autoGeometry.length - 1]]
+        : [];
 
   return (
-    <div className={cn("relative isolate overflow-hidden rounded-[var(--radius-card)] border border-border", className)} style={{ height }}>
-      <MapContainer center={INDIA_CENTER} zoom={5} scrollWheelZoom className="h-full w-full" zoomControl={false}>
-        <ZoomControl position="bottomright" />
+    <div
+      className={cn("relative isolate overflow-hidden rounded-[var(--radius-card)] border border-border", className)}
+      style={{ height }}
+    >
+      <MapContainer
+        center={INDIA_CENTER}
+        zoom={5}
+        scrollWheelZoom
+        className="h-full w-full"
+        zoomControl={false}
+      >
+        <ZoomControlCustom />
         {layer === "map" ? (
-          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maxZoom={19}
+          />
         ) : (
-          <TileLayer attribution="Tiles &copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+          <TileLayer
+            attribution="Tiles &copy; Esri"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+          />
         )}
 
-        <FitBounds points={allPoints} />
+        <FitBounds points={boundsPoints} />
 
         {/* Fallback road route when only checkpoints are provided */}
         {routes.length === 0 && autoGeometry.length > 1 && (
           <>
-            <Polyline positions={autoGeometry} pathOptions={{ color: "#ffffff", weight: 9, opacity: 0.8 }} />
-            <Polyline positions={autoGeometry} pathOptions={{ color: "#2563eb", weight: 5, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+            <Polyline
+              positions={autoGeometry}
+              pathOptions={{ color: "#ffffff", weight: 9, opacity: 0.8 }}
+            />
+            <Polyline
+              positions={autoGeometry}
+              pathOptions={{ color: "#2563eb", weight: 5, opacity: 0.95, lineCap: "round", lineJoin: "round" }}
+            />
           </>
         )}
 
-        {/* Route polylines */}
-        {routes.map((r, i) => r.geometry.length > 1 && (
-          <React.Fragment key={i}>
-            {r.active && (
+        {/* Route polylines — inactive routes first, then active on top */}
+        {routes
+          .filter(r => !r.active && r.geometry.length > 1)
+          .map((r, i) => (
+            <Polyline
+              key={`inactive-${i}`}
+              positions={r.geometry}
+              pathOptions={{
+                color: r.color,
+                weight: 3,
+                opacity: 0.4,
+                dashArray: "8 6",
+                lineCap: "round",
+                lineJoin: "round",
+              }}
+            />
+          ))}
+        {routes
+          .filter(r => r.active && r.geometry.length > 1)
+          .map((r, i) => (
+            <React.Fragment key={`active-${i}`}>
+              {/* White casing for visibility */}
               <Polyline
                 positions={r.geometry}
                 pathOptions={{
                   color: "#ffffff",
                   weight: 9,
-                  opacity: 0.8,
+                  opacity: 0.85,
                   lineCap: "round",
                   lineJoin: "round",
                 }}
               />
-            )}
-            <Polyline
-              positions={r.geometry}
-              pathOptions={{
-                color: r.color,
-                weight: r.active ? 5 : 3,
-                opacity: r.active ? 0.95 : 0.45,
-                dashArray: r.active ? undefined : "8 6",
-                lineCap: "round",
-                lineJoin: "round",
-              }}
-            />
-          </React.Fragment>
-        ))}
+              {/* Colored route line */}
+              <Polyline
+                positions={r.geometry}
+                pathOptions={{
+                  color: r.color,
+                  weight: 5,
+                  opacity: 0.97,
+                  lineCap: "round",
+                  lineJoin: "round",
+                }}
+              />
+            </React.Fragment>
+          ))}
 
         {/* Checkpoint pins */}
         {checkpoints.map((cp, i) => {
@@ -188,7 +271,13 @@ export default function TravelRouteMap({ routes = [], checkpoints = [], places =
       {/* Layer switcher */}
       <div className="absolute left-3 top-3 z-[500] inline-flex overflow-hidden rounded-lg border border-border bg-card text-xs font-semibold shadow-[var(--shadow-card)]">
         {(["map", "satellite"] as const).map(l => (
-          <button key={l} type="button" aria-pressed={layer === l} onClick={() => setLayer(l)} className={cn("px-3 py-1.5 capitalize", layer === l ? "bg-brand text-brand-foreground" : "text-foreground hover:bg-muted")}>
+          <button
+            key={l}
+            type="button"
+            aria-pressed={layer === l}
+            onClick={() => setLayer(l)}
+            className={cn("px-3 py-1.5 capitalize", layer === l ? "bg-brand text-brand-foreground" : "text-foreground hover:bg-muted")}
+          >
             {l}
           </button>
         ))}

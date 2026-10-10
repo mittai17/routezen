@@ -622,11 +622,19 @@ export async function listCheckpoints(tripId: string): Promise<TravelCheckpoint[
 
 export async function generateRouteOptions(tripId: string): Promise<RouteOption[]> {
   if (!USE_DEMO_DATA) {
+    // 1. Try fetching previously-saved route options (fast, no OSRM call)
+    try {
+      const saved = await request(`/travel/trips/${tripId}/route-options`, { method: "GET", schema: z.array(routeOptionSchema) });
+      if (saved && saved.length > 0 && saved[0].geometry.length > 5) return saved;
+    } catch {
+      // no saved options yet — fall through to generate
+    }
+    // 2. Generate fresh route options via OSRM (slower, but uses real road geometry)
     try {
       const remote = await request(`/travel/trips/${tripId}/route-options`, { method: "POST", schema: z.array(routeOptionSchema) });
       if (remote && remote.length > 0 && remote[0].geometry.length > 5) return remote;
     } catch {
-      // fallback to dynamic computation
+      // fallback to client-side computation
     }
   }
 
