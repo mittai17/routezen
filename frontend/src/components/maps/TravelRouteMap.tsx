@@ -80,10 +80,32 @@ function FitBounds({ points }: { points: [number, number][] }) {
 
 export default function TravelRouteMap({ routes = [], checkpoints = [], places = [], height = "100%", className, selectedCheckpointId }: TravelMapProps) {
   const [layer, setLayer] = React.useState<"map" | "satellite">("map");
+  const [autoGeometry, setAutoGeometry] = React.useState<[number, number][]>([]);
+
+  // If no routes are passed but checkpoints >= 2, auto-fetch road geometry connecting checkpoints
+  React.useEffect(() => {
+    if (routes.length === 0 && checkpoints.length >= 2) {
+      let isMounted = true;
+      const path = checkpoints.map(c => `${c.lng.toFixed(6)},${c.lat.toFixed(6)}`).join(";");
+      fetch(`https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`)
+        .then(r => r.json())
+        .then(data => {
+          if (isMounted && data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
+            const geom = data.routes[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [Number(lat.toFixed(5)), Number(lng.toFixed(5))] as [number, number]);
+            setAutoGeometry(geom);
+          }
+        })
+        .catch(() => {});
+      return () => { isMounted = false; };
+    } else {
+      setAutoGeometry([]);
+    }
+  }, [routes.length, checkpoints]);
 
   const allPoints: [number, number][] = [
     ...checkpoints.map(c => [c.lat, c.lng] as [number, number]),
     ...routes.flatMap(r => r.geometry),
+    ...autoGeometry,
   ];
 
   return (
@@ -98,18 +120,41 @@ export default function TravelRouteMap({ routes = [], checkpoints = [], places =
 
         <FitBounds points={allPoints} />
 
+        {/* Fallback road route when only checkpoints are provided */}
+        {routes.length === 0 && autoGeometry.length > 1 && (
+          <>
+            <Polyline positions={autoGeometry} pathOptions={{ color: "#ffffff", weight: 9, opacity: 0.8 }} />
+            <Polyline positions={autoGeometry} pathOptions={{ color: "#2563eb", weight: 5, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+          </>
+        )}
+
         {/* Route polylines */}
         {routes.map((r, i) => r.geometry.length > 1 && (
-          <Polyline
-            key={i}
-            positions={r.geometry}
-            pathOptions={{
-              color: r.color,
-              weight: r.active ? 5 : 3,
-              opacity: r.active ? 0.9 : 0.4,
-              dashArray: r.active ? undefined : "8 6",
-            }}
-          />
+          <React.Fragment key={i}>
+            {r.active && (
+              <Polyline
+                positions={r.geometry}
+                pathOptions={{
+                  color: "#ffffff",
+                  weight: 9,
+                  opacity: 0.8,
+                  lineCap: "round",
+                  lineJoin: "round",
+                }}
+              />
+            )}
+            <Polyline
+              positions={r.geometry}
+              pathOptions={{
+                color: r.color,
+                weight: r.active ? 5 : 3,
+                opacity: r.active ? 0.95 : 0.45,
+                dashArray: r.active ? undefined : "8 6",
+                lineCap: "round",
+                lineJoin: "round",
+              }}
+            />
+          </React.Fragment>
         ))}
 
         {/* Checkpoint pins */}

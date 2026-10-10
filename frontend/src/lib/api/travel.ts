@@ -4,7 +4,7 @@
  * When backend is available, all calls hit /api/v1/travel/*.
  */
 import { z } from "zod";
-import { request, USE_DEMO_DATA } from "./client";
+import { request, USE_DEMO_DATA, API_BASE_URL } from "./client";
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -389,28 +389,56 @@ function interpolateCoords(
   return pts;
 }
 
-async function fetchOsrmGeometry(
+async function fetchOsrmRoutes(
   coords: [number, number][]
-): Promise<[number, number][] | null> {
+): Promise<{ geometry: [number, number][]; distanceKm: number; durationMin: number }[]> {
+  if (coords.length < 2) return [];
+
+  // 1. Local backend routing endpoint
   try {
-    const res = await fetch("http://localhost:8000/api/v1/routing/route", {
+    const res = await fetch(`${API_BASE_URL}/routing/route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         coordinates: coords.map(([lat, lng]) => ({ lat, lng })),
-        overview: "full",
+        allow_fallback_estimate: false,
       }),
     });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.geometry) && data.geometry.length > 0) {
-        return data.geometry;
+      if (Array.isArray(data.geometry) && data.geometry.length > 5) {
+        return [{
+          geometry: data.geometry,
+          distanceKm: Math.round(data.distance_km),
+          durationMin: Math.round(data.duration_min),
+        }];
       }
     }
   } catch {
-    // ignore
+    // try direct public OSRM below
   }
-  return null;
+
+  // 2. Direct public OSRM router
+  try {
+    const path = coords.map(([lat, lng]) => `${lng.toFixed(6)},${lat.toFixed(6)}`).join(";");
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson&alternatives=true`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.code === "Ok" && Array.isArray(data.routes) && data.routes.length > 0) {
+        return data.routes.map((r: any) => ({
+          geometry: r.geometry.coordinates.map(([lng, lat]: [number, number]) => [Number(lat.toFixed(5)), Number(lng.toFixed(5))] as [number, number]),
+          distanceKm: Math.round(r.distance / 1000),
+          durationMin: Math.round(r.duration / 60),
+        }));
+      }
+    }
+  } catch {
+    // fallback
+  }
+
+  return [];
 }
 
 // ── API Functions ──────────────────────────────────────────────────────────
@@ -596,14 +624,24 @@ export async function generateRouteOptions(tripId: string): Promise<RouteOption[
   if (!USE_DEMO_DATA) {
     try {
       const remote = await request(`/travel/trips/${tripId}/route-options`, { method: "POST", schema: z.array(routeOptionSchema) });
-      if (remote && remote.length > 0) return remote;
+      if (remote && remote.length > 0 && remote[0].geometry.length > 5) return remote;
     } catch {
       // fallback to dynamic computation
     }
   }
 
   if (tripId === "demo-trip-001") {
-    return demo(DEMO_ROUTE_OPTIONS, 800);
+    // Try live OSRM for demo trip first, fallback to preset options with road curves
+    const demoRoutes = await fetchOsrmRoutes(DEMO_CHECKPOINTS.map(c => [c.lat, c.lng] as [number, number]));
+    if (demoRoutes.length > 0 && demoRoutes[0].geometry.length > 5) {
+      return demo(DEMO_ROUTE_OPTIONS.map((opt, i) => ({
+        ...opt,
+        geometry: demoRoutes[i]?.geometry ?? demoRoutes[0].geometry,
+        total_distance_km: demoRoutes[i]?.distanceKm ?? opt.total_distance_km,
+        total_duration_min: demoRoutes[i]?.durationMin ?? opt.total_duration_min,
+      })), 400);
+    }
+    return demo(DEMO_ROUTE_OPTIONS, 400);
   }
 
   const store = getStoredTrips();
@@ -611,34 +649,76 @@ export async function generateRouteOptions(tripId: string): Promise<RouteOption[
 
   const oLat = trip.origin_lat || 13.0827;
   const oLng = trip.origin_lng || 80.2707;
-  const dLat = trip.destination_lat || 15.2993;
-  const dLng = trip.destination_lng || 74.1240;
+  const dLat = trip.destination_lat || 11.9416;
+  const dLng = trip.destination_lng || 79.8083;
 
-  const directKm = haversineDistKm(oLat, oLng, dLat, dLng);
-  const roadKm = Math.max(30, Math.round(directKm * 1.25));
+  // Retrieve checkpoints for this trip to route through all intermediate nodes
+  const cps = await listCheckpoints(tripId);
+  const cpIds = cps.map(c => c.id);
 
-  // Try real road geometry from OSRM
-  let roadGeom = await fetchOsrmGeometry([[oLat, oLng], [dLat, dLng]]);
-  if (!roadGeom || roadGeom.length === 0) {
-    roadGeom = interpolateCoords([oLat, oLng], [dLat, dLng], 12);
+  let waypoints: [number, number][] = [];
+  if (cps && cps.length >= 2) {
+    waypoints = cps.map(c => [c.lat, c.lng] as [number, number]);
+  } else {
+    waypoints = [[oLat, oLng], [dLat, dLng]];
+  }
+
+  // Fetch real road routes from OSRM connecting every checkpoint in sequence
+  const osrmRoutes = await fetchOsrmRoutes(waypoints);
+
+  let roadGeom: [number, number][] = [];
+  let roadKm = 0;
+  let recDuration = 0;
+
+  if (osrmRoutes.length > 0 && osrmRoutes[0].geometry.length > 5) {
+    roadGeom = osrmRoutes[0].geometry;
+    roadKm = osrmRoutes[0].distanceKm;
+    recDuration = osrmRoutes[0].durationMin;
+  } else {
+    const directKm = haversineDistKm(oLat, oLng, dLat, dLng);
+    roadKm = Math.max(30, Math.round(directKm * 1.25));
+    recDuration = Math.round((roadKm / 65) * 60);
+    roadGeom = interpolateCoords([oLat, oLng], [dLat, dLng], 24);
   }
 
   const recDays = Math.max(1, Math.ceil(roadKm / 400));
   const recFuel = Math.round((roadKm / 14) * 105);
   const recTotal = recFuel + recDays * 3500;
-  const recDuration = Math.round((roadKm / 65) * 60);
 
-  const fastKm = Math.round(roadKm * 0.94);
+  // Alternative 2: Fastest Route (mandatory stops via arterial highway)
+  const fastIntermediate = cps.filter(c => c.is_mandatory && c.type !== "origin" && c.type !== "destination");
+  let fastGeom = roadGeom;
+  let fastKm = Math.round(roadKm * 0.94);
+  let fastDuration = Math.round(recDuration * 0.90);
+
+  if (fastIntermediate.length > 0 && fastIntermediate.length !== cps.filter(c => c.type !== "origin" && c.type !== "destination").length) {
+    const fastWaypoints: [number, number][] = [[oLat, oLng], ...fastIntermediate.map(c => [c.lat, c.lng] as [number, number]), [dLat, dLng]];
+    const fastRoutes = await fetchOsrmRoutes(fastWaypoints);
+    if (fastRoutes.length > 0 && fastRoutes[0].geometry.length > 5) {
+      fastGeom = fastRoutes[0].geometry;
+      fastKm = fastRoutes[0].distanceKm;
+      fastDuration = fastRoutes[0].durationMin;
+    }
+  }
+
   const fastDays = Math.max(1, Math.ceil(fastKm / 500));
   const fastFuel = Math.round((fastKm / 14) * 105);
   const fastTotal = fastFuel + fastDays * 3200;
-  const fastDuration = Math.round((fastKm / 75) * 60);
 
-  const scenicKm = Math.round(roadKm * 1.12);
+  // Alternative 3: Scenic & Heritage Route (uses secondary OSRM route if available)
+  let scenicGeom = roadGeom;
+  let scenicKm = Math.round(roadKm * 1.12);
+  let scenicDuration = Math.round(recDuration * 1.22);
+
+  if (osrmRoutes.length > 1 && osrmRoutes[1].geometry.length > 5) {
+    scenicGeom = osrmRoutes[1].geometry;
+    scenicKm = osrmRoutes[1].distanceKm;
+    scenicDuration = osrmRoutes[1].durationMin;
+  }
+
   const scenicDays = recDays + 1;
   const scenicFuel = Math.round((scenicKm / 13) * 105);
   const scenicTotal = scenicFuel + scenicDays * 3900;
-  const scenicDuration = Math.round((scenicKm / 55) * 60);
 
   const origCity = trip.origin_name.split(",")[0].trim();
   const destCity = trip.destination_name.split(",")[0].trim();
@@ -648,56 +728,56 @@ export async function generateRouteOptions(tripId: string): Promise<RouteOption[
       id: `route-${tripId}-rec`,
       trip_id: tripId,
       label: "Recommended Route",
-      description: `Balanced highway corridor from ${origCity} to ${destCity} with comfortable halts`,
+      description: `Optimized road corridor connecting all scheduled stops from ${origCity} to ${destCity}`,
       total_distance_km: roadKm,
       total_duration_min: recDuration,
       estimated_days: recDays,
       estimated_fuel_cost_inr: recFuel,
       estimated_total_cost_inr: recTotal,
       geometry: roadGeom,
-      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      checkpoints: cpIds.length > 0 ? cpIds : [`cp-start-${tripId}`, `cp-end-${tripId}`],
       is_selected: true,
       data_source: "osrm_hybrid",
       fallback_estimate: false,
-      note: "Optimized for safety and scenic balance",
+      note: "Optimized for road safety, scenic beauty, and driver endurance",
     },
     {
       id: `route-${tripId}-fast`,
       trip_id: tripId,
       label: "Fastest Route",
-      description: `Direct arterial route between ${origCity} and ${destCity} with minimum intermediate halts`,
+      description: `Direct arterial express route between ${origCity} and ${destCity} with minimum intermediate halts`,
       total_distance_km: fastKm,
       total_duration_min: fastDuration,
       estimated_days: fastDays,
       estimated_fuel_cost_inr: fastFuel,
       estimated_total_cost_inr: fastTotal,
-      geometry: roadGeom,
-      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      geometry: fastGeom,
+      checkpoints: cpIds.length > 0 ? cpIds : [`cp-start-${tripId}`, `cp-end-${tripId}`],
       is_selected: false,
       data_source: "osrm_hybrid",
       fallback_estimate: false,
-      note: "Longer daily driving stretches",
+      note: "Higher speed highway segments with longer daily driving stretches",
     },
     {
       id: `route-${tripId}-scenic`,
       trip_id: tripId,
       label: "Scenic & Heritage Route",
-      description: `Scenic roads connecting ${origCity} and ${destCity} with cultural sightseeing halts`,
+      description: `Scenic coastal and heritage roads connecting ${origCity} and ${destCity} with cultural sightseeing halts`,
       total_distance_km: scenicKm,
       total_duration_min: scenicDuration,
       estimated_days: scenicDays,
       estimated_fuel_cost_inr: scenicFuel,
       estimated_total_cost_inr: scenicTotal,
-      geometry: roadGeom,
-      checkpoints: [`cp-start-${tripId}`, `cp-end-${tripId}`],
+      geometry: scenicGeom,
+      checkpoints: cpIds.length > 0 ? cpIds : [`cp-start-${tripId}`, `cp-end-${tripId}`],
       is_selected: false,
       data_source: "osrm_hybrid",
       fallback_estimate: false,
-      note: "Extra time for local viewpoints and photography",
+      note: "Panoramic views and cultural viewpoints along the route",
     },
   ];
 
-  return demo(dynamicOptions, 600);
+  return demo(dynamicOptions, 400);
 }
 
 export async function listStays(tripId: string, checkpointId?: string): Promise<TravelPlace[]> {

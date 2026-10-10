@@ -84,7 +84,11 @@ def seed(session: Session, workspace_id: str) -> tuple[int, int]:
     return nv, nl
 
 
+from scripts.seed_all import seed_all
+
 if __name__ == "__main__":
     with get_sessionmaker()() as s:
         v, l = seed(s, get_settings().workspace_id)
-    print(f"seeded {v} vehicle profiles and {l} locations (demo data, verification='assumed')")
+        seed_all(s, get_settings().workspace_id)
+    print(f"All main data seeded successfully (vehicles, locations, packages, plans, tracking events, scenarios, smart travel).")
+

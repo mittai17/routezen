@@ -136,7 +136,15 @@ async def generate_route_options(trip_id: str, repo: TravelRepository = Depends(
         raise HTTPException(status_code=404, detail="Trip not found")
     cps = repo.list_checkpoints(trip_id)
     cp_dicts = [
-        {"id": c.id, "lat": c.lat, "lng": c.lng, "name": c.name, "is_mandatory": c.is_mandatory}
+        {
+            "id": c.id,
+            "lat": c.lat,
+            "lng": c.lng,
+            "name": c.name,
+            "type": c.type,
+            "is_mandatory": c.is_mandatory,
+            "sequence": c.sequence,
+        }
         for c in cps
     ]
 
