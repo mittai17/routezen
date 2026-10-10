@@ -15,7 +15,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View 
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, MapPin, X } from "lucide-react-native";
 
-import { apiRequest, ApiError } from "../../../../lib/api/client";
+import { apiRequest, ApiError } from "../../lib/api/client";
 import {
   HANDLING_PRESETS,
   PRIORITY_LABELS,
@@ -31,8 +31,8 @@ import {
   type PackageKind,
   type PackagePriority,
   type PackageStatus,
-} from "../../../../lib/api/packages";
-import { Badge, Button } from "../../home/_components/ui";
+} from "../../lib/api/packages";
+import { Badge, Button } from "../home/ui";
 
 interface LocationOption {
   id: string;

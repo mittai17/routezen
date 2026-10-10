@@ -6,8 +6,8 @@ import { ArrowLeft } from "lucide-react-native";
 
 import { getPackage } from "../../../../../lib/api/packages";
 import { ApiError } from "../../../../../lib/api/client";
-import { PackageForm } from "../../_components/PackageForm";
-import { ErrorState } from "../../../home/_components/ui";
+import { PackageForm } from "../../../../../components/logistics/PackageForm";
+import { ErrorState } from "../../../../../components/home/ui";
 
 export default function EditPackageScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

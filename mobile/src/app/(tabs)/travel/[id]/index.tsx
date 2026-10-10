@@ -23,7 +23,7 @@ import {
   type RouteOption,
 } from "../../../../lib/api/travel";
 import { Button, Card, ErrorState, LoadingSkeleton, ScreenHeader, StatusBadge } from "../../../../components/ui";
-import { fmtInr, fmtKm, inputClassName } from "../_shared";
+import { fmtInr, fmtKm, inputClassName } from "../../../../components/travel/shared";
 
 function NavRow({ icon, label, sub, onPress }: { icon: React.ReactNode; label: string; sub?: string; onPress: () => void }) {
   return (

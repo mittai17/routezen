@@ -15,7 +15,7 @@ import {
   type PackageStatus,
 } from "../../../../lib/api/packages";
 import { ApiError } from "../../../../lib/api/client";
-import { Badge, EmptyState, ErrorState, fmtKg, LoadingSkeleton } from "../../home/_components/ui";
+import { Badge, EmptyState, ErrorState, fmtKg, LoadingSkeleton } from "../../../../components/home/ui";
 
 const STATUS_FILTERS: (PackageStatus | "all")[] = ["all", "pending", "assigned", "in_transit", "delivered", "failed", "cancelled"];
 const STATUS_TONE: Record<PackageStatus, "success" | "warning" | "danger" | "info" | "muted"> = {

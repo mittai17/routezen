@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
-import MapView, { Marker } from "react-native-maps";
 import {
   ArrowLeft,
   Box,
@@ -32,7 +31,8 @@ import {
   type PackageStatus,
 } from "../../../../../lib/api/packages";
 import { ApiError } from "../../../../../lib/api/client";
-import { Badge, Button, Card, ErrorState, fmtDateTime, fmtKg, fmtMoney } from "../../../home/_components/ui";
+import { Badge, Button, Card, ErrorState, fmtDateTime, fmtKg, fmtMoney } from "../../../../../components/home/ui";
+import { RouteZenMap } from "../../../../../components/ui";
 
 const STATUS_TONE: Record<PackageStatus, "success" | "warning" | "danger" | "info" | "muted"> = {
   pending: "muted",
@@ -157,13 +157,14 @@ export default function PackageDetailScreen() {
               </View>
             </View>
             {pkg.latitude != null && pkg.longitude != null ? (
-              <MapView
-                className="mt-3 h-40 w-full rounded-xl"
-                pointerEvents="none"
-                initialRegion={{ latitude: pkg.latitude, longitude: pkg.longitude, latitudeDelta: 0.03, longitudeDelta: 0.03 }}
-              >
-                <Marker coordinate={{ latitude: pkg.latitude, longitude: pkg.longitude }} title={pkg.reference} />
-              </MapView>
+              <View className="mt-3 h-40 w-full overflow-hidden rounded-xl border border-border">
+                <RouteZenMap
+                  style={{ flex: 1 }}
+                  pointerEvents="none"
+                  initialRegion={{ latitude: pkg.latitude, longitude: pkg.longitude, latitudeDelta: 0.03, longitudeDelta: 0.03 }}
+                  markers={[{ id: pkg.id, latitude: pkg.latitude, longitude: pkg.longitude, title: pkg.reference }]}
+                />
+              </View>
             ) : (
               <Text className="mt-3 text-xs text-ink-muted">No coordinates on file — add latitude/longitude to preview on the map.</Text>
             )}

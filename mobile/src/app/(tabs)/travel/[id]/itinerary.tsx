@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Car, Hotel, RefreshCw, Utensils, Landmark } from "lucide-react-native";
 import { ApiError, buildItinerary, type ItineraryDay } from "../../../../lib/api/travel";
 import { Button, Card, ErrorState, LoadingSkeleton, ScreenHeader } from "../../../../components/ui";
-import { fmtInr, fmtKm, fmtMin } from "../_shared";
+import { fmtInr, fmtKm, fmtMin } from "../../../../components/travel/shared";
 
 const ITEM_ICON: Record<string, React.ComponentType<{ size?: number; color?: string }>> = {
   drive: Car,

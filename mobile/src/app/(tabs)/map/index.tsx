@@ -22,12 +22,18 @@ import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import MapView, { Marker, type Region } from "react-native-maps";
 import { AlertTriangle, Compass, Crosshair, Flag, Info, Map as MapIcon, Maximize2 } from "lucide-react-native";
 
-import { EmptyState, ErrorState, ScreenHeader } from "../../../components/ui";
+import { EmptyState, ErrorState, RouteZenMap, ScreenHeader, type RouteZenMapRef } from "../../../components/ui";
 import { listRuns, type OptStop, type QuantumResult, type OptimizationResult, type RunRecord } from "../../../lib/api/optimization";
 import { ApiError } from "../../../lib/api/client";
+
+interface Region {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+}
 
 const CHENNAI_REGION: Region = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.35, longitudeDelta: 0.35 };
 
@@ -74,7 +80,7 @@ function extractPoints(run: RunRecord): { points: MapPoint[]; depotMissing: bool
 const KIND_LABEL: Record<string, string> = { classical: "Classical", quantum: "Quantum (sim)", annealing: "Annealing", hybrid: "Hybrid" };
 
 export default function MapTab() {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<RouteZenMapRef>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationNote, setLocationNote] = useState<string | null>(null);
@@ -93,12 +99,11 @@ export default function MapTab() {
   function fitToStops() {
     if (points.length === 0) return;
     if (points.length === 1) {
-      mapRef.current?.animateToRegion({ latitude: points[0].latitude, longitude: points[0].longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 400);
+      mapRef.current?.animateToRegion({ latitude: points[0].latitude, longitude: points[0].longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 });
       return;
     }
     mapRef.current?.fitToCoordinates(
       points.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
-      { edgePadding: { top: 80, right: 60, bottom: 220, left: 60 }, animated: true },
     );
   }
 
@@ -121,10 +126,12 @@ export default function MapTab() {
                 return;
               }
               const pos = await Location.getCurrentPositionAsync({});
-              mapRef.current?.animateToRegion(
-                { latitude: pos.coords.latitude, longitude: pos.coords.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-                400,
-              );
+              mapRef.current?.animateToRegion({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              });
             } catch (err) {
               setLocationNote(err instanceof Error ? `Could not get your location: ${err.message}` : "Could not get your location.");
             } finally {
@@ -162,22 +169,31 @@ export default function MapTab() {
         />
       ) : (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="border-b border-border bg-surface py-2" contentContainerClassName="gap-2 px-4">
-            {runs.map((r) => {
-              const active = selectedRun?.id === r.id;
-              return (
-                <Pressable
-                  key={r.id}
-                  onPress={() => setSelectedId(r.id)}
-                  className={`rounded-pill border px-3 py-1.5 ${active ? "border-brand-green bg-brand-green" : "border-border bg-muted"}`}
-                >
-                  <Text className={`text-xs font-medium ${active ? "text-white" : "text-ink"}`}>
-                    {KIND_LABEL[r.kind] ?? r.kind} · {new Date(r.created_at).toLocaleDateString()}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <View style={{ height: 44, backgroundColor: "#FFFFFF" }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}>
+              {runs.map((r) => {
+                const active = selectedRun?.id === r.id;
+                return (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => setSelectedId(r.id)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? "#0E4429" : "#E4E8E1",
+                      backgroundColor: active ? "#0E4429" : "#F4F6F3",
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "500", color: active ? "#FFFFFF" : "#0E1A14" }}>
+                      {KIND_LABEL[r.kind] ?? r.kind} · {new Date(r.created_at).toLocaleDateString()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
 
           <View className="flex-row items-start gap-2 bg-info/10 px-4 py-2">
             <Info size={14} color="#1D5FB3" style={{ marginTop: 2 }} />
@@ -202,16 +218,19 @@ export default function MapTab() {
             {points.length === 0 ? (
               <EmptyState icon={<MapIcon size={28} color="#5B6B60" />} title="No usable coordinates" description="This run has no usable stop coordinates to plot." />
             ) : (
-              <MapView ref={mapRef} style={{ flex: 1 }} initialRegion={CHENNAI_REGION} onMapReady={fitToStops}>
-                {points.map((p) => (
-                  <Marker
-                    key={p.id}
-                    coordinate={{ latitude: p.latitude, longitude: p.longitude }}
-                    title={p.kind === "depot" ? `Depot — ${p.label}` : p.sequence ? `${p.sequence}. ${p.label}` : p.label}
-                    pinColor={p.kind === "depot" ? "#0E4429" : "#F4C430"}
-                  />
-                ))}
-              </MapView>
+              <RouteZenMap
+                ref={mapRef}
+                style={{ flex: 1 }}
+                initialRegion={CHENNAI_REGION}
+                onMapReady={fitToStops}
+                markers={points.map((p) => ({
+                  id: p.id,
+                  latitude: p.latitude,
+                  longitude: p.longitude,
+                  title: p.kind === "depot" ? `Depot — ${p.label}` : p.sequence ? `${p.sequence}. ${p.label}` : p.label,
+                  color: p.kind === "depot" ? "#0E4429" : "#F4C430",
+                }))}
+              />
             )}
 
             <View className="absolute bottom-4 right-4 gap-2">

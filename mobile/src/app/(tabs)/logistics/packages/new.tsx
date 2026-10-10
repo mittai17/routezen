@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Pressable, Text, View } from "react-native";
 import { ArrowLeft } from "lucide-react-native";
 
-import { PackageForm } from "../_components/PackageForm";
+import { PackageForm } from "../../../../components/logistics/PackageForm";
 
 export default function NewPackageScreen() {
   const queryClient = useQueryClient();

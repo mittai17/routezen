@@ -3,12 +3,11 @@ import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 import { AlertTriangle, ChevronLeft, Crosshair, Flag, LocateFixed, LogOut } from "lucide-react-native";
 import { ApiError, generateRouteOptions, listCheckpoints } from "../../../../lib/api/travel";
-import { Button, ConfirmDialog, ErrorState, LoadingSkeleton } from "../../../../components/ui";
-import { fmtKm, fmtMin } from "../_shared";
+import { Button, ConfirmDialog, ErrorState, LoadingSkeleton, RouteZenMap, type RouteZenMapRef } from "../../../../components/ui";
+import { fmtKm, fmtMin } from "../../../../components/travel/shared";
 
 /**
  * Route Preview — explicitly NOT live turn-by-turn navigation.
@@ -30,7 +29,7 @@ import { fmtKm, fmtMin } from "../_shared";
 export default function RoutePreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const tripId = String(id);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<RouteZenMapRef>(null);
 
   const [currentIndex, setCurrentIndex] = useState(0); // TODO: replace with real progress if a live feed ever exists
   const [exitDialogVisible, setExitDialogVisible] = useState(false);
@@ -49,18 +48,30 @@ export default function RoutePreviewScreen() {
   const checkpoints = useMemo(() => [...(checkpointsQuery.data ?? [])].sort((a, b) => a.sequence - b.sequence), [checkpointsQuery.data]);
 
   const remaining = useMemo(() => {
-    if (checkpoints.length === 0) return { km: 0, stops: 0 };
+    const stops = Math.max(0, checkpoints.length - 1 - currentIndex);
+    if (checkpoints.length === 0) return { km: null, stops: 0 };
+
     const upcoming = checkpoints.slice(currentIndex + 1);
-    const km = upcoming.reduce((sum, c) => sum + (c.distance_from_prev_km ?? 0), 0);
-    return { km, stops: Math.max(0, checkpoints.length - 1 - currentIndex) };
-  }, [checkpoints, currentIndex]);
+    const hasAnyLegDistances = upcoming.some((c) => c.distance_from_prev_km != null);
+
+    if (hasAnyLegDistances) {
+      const km = upcoming.reduce((sum, c) => sum + (c.distance_from_prev_km ?? 0), 0);
+      return { km, stops };
+    }
+
+    if (currentIndex === 0) {
+      return { km: route?.total_distance_km ?? null, stops };
+    }
+
+    return { km: null, stops };
+  }, [checkpoints, currentIndex, route]);
 
   const hasRealGeometry = route && !route.fallback_estimate && route.geometry.length > 1;
   const coords = hasRealGeometry ? route!.geometry.map(([lat, lng]) => ({ latitude: lat, longitude: lng })) : [];
 
   function fitToRoute() {
     if (mapRef.current && coords.length > 1) {
-      mapRef.current.fitToCoordinates(coords, { edgePadding: { top: 60, right: 60, bottom: 60, left: 60 }, animated: true });
+      mapRef.current.fitToCoordinates(coords);
     }
   }
 
@@ -82,7 +93,7 @@ export default function RoutePreviewScreen() {
       const here = { latitude: position.coords.latitude, longitude: position.coords.longitude };
       setUserCoords(here);
       setLocationStatus("granted");
-      mapRef.current?.animateToRegion({ ...here, latitudeDelta: 0.1, longitudeDelta: 0.1 }, 400);
+      mapRef.current?.animateToRegion({ ...here, latitudeDelta: 0.1, longitudeDelta: 0.1 });
     } catch {
       setLocationStatus("error");
       fitToRoute();
@@ -155,7 +166,7 @@ export default function RoutePreviewScreen() {
       ) : (
         <>
           <View className="flex-1">
-            <MapView
+            <RouteZenMap
               ref={mapRef}
               style={{ flex: 1 }}
               initialRegion={{
@@ -165,21 +176,22 @@ export default function RoutePreviewScreen() {
                 longitudeDelta: 0.6,
               }}
               onMapReady={fitToRoute}
-            >
-              <Polyline coordinates={coords} strokeColor="#F4C430" strokeWidth={5} />
-              {checkpoints.map((cp, idx) => (
-                <Marker
-                  key={cp.id}
-                  coordinate={{ latitude: cp.lat, longitude: cp.lng }}
-                  pinColor={idx <= currentIndex ? "#5B6B60" : idx === checkpoints.length - 1 ? "#B3261E" : "#1B6B3F"}
-                  title={cp.name}
-                  description={idx <= currentIndex ? "Passed" : "Upcoming"}
-                />
-              ))}
-              {userCoords ? (
-                <Marker coordinate={userCoords} pinColor="dodgerblue" title="You are here" description="One-shot location fix, not live tracking" />
-              ) : null}
-            </MapView>
+              polyline={coords}
+              polylineColor="#F4C430"
+              fitToMarkers={false}
+              markers={[
+                ...checkpoints.map((cp, idx) => ({
+                  id: cp.id,
+                  latitude: cp.lat,
+                  longitude: cp.lng,
+                  title: `${cp.name} — ${idx <= currentIndex ? "Passed" : "Upcoming"}`,
+                  color: idx <= currentIndex ? "#5B6B60" : idx === checkpoints.length - 1 ? "#B3261E" : "#1B6B3F",
+                })),
+                ...(userCoords
+                  ? [{ id: "you-are-here", latitude: userCoords.latitude, longitude: userCoords.longitude, title: "You are here (one-shot fix, not live tracking)", color: "#1E90FF" }]
+                  : []),
+              ]}
+            />
 
             <Pressable
               onPress={recenter}
@@ -207,7 +219,9 @@ export default function RoutePreviewScreen() {
             <View className="flex-row gap-3">
               <View className="flex-1 rounded-xl bg-white/10 p-3">
                 <Text className="text-[10px] font-bold uppercase text-white/60">Remaining distance</Text>
-                <Text className="mt-0.5 text-xl font-extrabold text-white">{fmtKm(remaining.km)}</Text>
+                <Text className="mt-0.5 text-xl font-extrabold text-white">
+                  {remaining.km != null ? fmtKm(remaining.km) : "—"}
+                </Text>
               </View>
               <View className="flex-1 rounded-xl bg-white/10 p-3">
                 <Text className="text-[10px] font-bold uppercase text-white/60">Stops left</Text>

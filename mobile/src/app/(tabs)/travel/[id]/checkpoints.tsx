@@ -14,7 +14,7 @@ import {
   type TravelCheckpoint,
 } from "../../../../lib/api/travel";
 import { Button, Card, ErrorState, LoadingSkeleton, ScreenHeader, StatusBadge } from "../../../../components/ui";
-import { fmtKm, fmtMin, inputClassName } from "../_shared";
+import { fmtKm, fmtMin, inputClassName } from "../../../../components/travel/shared";
 
 export default function CheckpointsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

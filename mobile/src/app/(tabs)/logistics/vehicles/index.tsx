@@ -12,7 +12,7 @@ import {
   type VehicleProfile,
 } from "../../../../lib/api/vehicles";
 import { ApiError } from "../../../../lib/api/client";
-import { Badge, Card, EmptyState, ErrorState, fmt, fmtMoney, LoadingSkeleton } from "../../home/_components/ui";
+import { Badge, Card, EmptyState, ErrorState, fmt, fmtMoney, LoadingSkeleton } from "../../../../components/home/ui";
 
 export default function VehiclesScreen() {
   const vehiclesQuery = useQuery({ queryKey: ["vehicles"], queryFn: ({ signal }) => listVehicles({ limit: 200, signal }) });

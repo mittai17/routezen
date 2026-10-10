@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Info } from "lucide-react-native";
 import { ApiError, getTripBudget } from "../../../../lib/api/travel";
 import { Card, ErrorState, LoadingSkeleton, ScreenHeader, StatusBadge } from "../../../../components/ui";
-import { fmtInr } from "../_shared";
+import { fmtInr } from "../../../../components/travel/shared";
 
 const LINE_ITEMS: { key: "fuel_inr" | "accommodation_inr" | "meals_inr" | "attractions_inr" | "tolls_inr" | "parking_inr" | "other_inr" | "contingency_inr"; label: string }[] = [
   { key: "fuel_inr", label: "Fuel" },

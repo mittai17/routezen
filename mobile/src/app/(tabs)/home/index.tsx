@@ -7,7 +7,7 @@ import { Boxes, Map as MapIcon, Package as PackageIcon, Plane, Search, Sparkles,
 
 import { apiRequest } from "../../../lib/api/client";
 import { listPackages, STATUS_LABELS, type Package } from "../../../lib/api/packages";
-import { Badge, Card, DemoDataBadge, ErrorState, fmtMoney, LoadingSkeleton, MetricCard } from "./_components/ui";
+import { Badge, Card, DemoDataBadge, ErrorState, fmtMoney, LoadingSkeleton, MetricCard } from "../../../components/home/ui";
 
 interface AnalyticsSummary {
   locations: number;

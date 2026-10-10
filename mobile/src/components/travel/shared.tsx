@@ -19,7 +19,7 @@
 import React from "react";
 import { Text, View } from "react-native";
 import { Car, Bike, Zap } from "lucide-react-native";
-import type { TravelMode } from "../../../lib/api/travel";
+import type { TravelMode } from "../../lib/api/travel";
 
 // ── Stats ───────────────────────────────────────────────────────────────
 

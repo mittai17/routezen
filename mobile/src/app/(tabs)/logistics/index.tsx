@@ -2,11 +2,12 @@ import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { AlertTriangle, CheckCircle2, Clock, Package as PackageIcon, Plus, Sparkles, Truck } from "lucide-react-native";
+import { AlertTriangle, CheckCircle2, Clock, GitCompare, Package as PackageIcon, Plus, Sparkles, Tag, Truck } from "lucide-react-native";
 
 import { isDelayed, listPackages, STATUS_LABELS, type Package } from "../../../lib/api/packages";
+import { listEvents, type DeliveryEvent } from "../../../lib/api/events";
 import { ApiError } from "../../../lib/api/client";
-import { Badge, Card, ErrorState, LoadingSkeleton, MetricCard, ScreenHeader } from "../home/_components/ui";
+import { Badge, Card, ErrorState, LoadingSkeleton, MetricCard, ScreenHeader } from "../../../components/home/ui";
 
 const MAX_FOR_STATS = 500; // backend's own per-request cap; dashboards at larger scale need a dedicated /analytics rollup.
 
@@ -14,6 +15,11 @@ export default function LogisticsDashboard() {
   const packagesQuery = useQuery({
     queryKey: ["logistics-stats"],
     queryFn: ({ signal }) => listPackages({ limit: MAX_FOR_STATS, sort: "created_at", order: "desc", signal }),
+  });
+
+  const eventsQuery = useQuery({
+    queryKey: ["recent-events"],
+    queryFn: ({ signal }) => listEvents({ limit: 5, sort: "occurred_at", order: "desc", signal }),
   });
 
   const items = packagesQuery.data?.items ?? [];
@@ -28,6 +34,7 @@ export default function LogisticsDashboard() {
   };
 
   const recent = items.slice(0, 5);
+  const recentEvents = eventsQuery.data?.items ?? [];
 
   return (
     <SafeAreaView className="flex-1 bg-muted" edges={["top"]}>
@@ -48,10 +55,18 @@ export default function LogisticsDashboard() {
                 <Text className="text-xs font-bold text-ink">Recommend vehicle</Text>
               </Card>
             </Pressable>
+          </View>
+          <View className="mt-3 flex-row gap-3">
             <Pressable onPress={() => router.push("/logistics/vehicles")} className="flex-1">
               <Card className="items-center gap-1">
                 <Truck size={20} color="#1B6B3F" />
                 <Text className="text-xs font-bold text-ink">View vehicles</Text>
+              </Card>
+            </Pressable>
+            <Pressable onPress={() => router.push("/logistics/scenarios")} className="flex-1">
+              <Card className="items-center gap-1">
+                <GitCompare size={20} color="#1B6B3F" />
+                <Text className="text-xs font-bold text-ink">Scenarios</Text>
               </Card>
             </Pressable>
           </View>
@@ -101,6 +116,33 @@ export default function LogisticsDashboard() {
                 </View>
               )}
             </View>
+
+            <View className="mt-6 px-5">
+              <View className="mb-2 flex-row items-center justify-between">
+                <Text className="text-base font-bold text-ink">Recent activity</Text>
+              </View>
+
+              {eventsQuery.isLoading ? (
+                <LoadingSkeleton rows={3} />
+              ) : eventsQuery.isError ? (
+                <ErrorState
+                  message={eventsQuery.error instanceof ApiError ? eventsQuery.error.message : "Could not load recent events."}
+                  onRetry={() => eventsQuery.refetch()}
+                />
+              ) : recentEvents.length === 0 ? (
+                <Card className="items-center gap-2 py-8">
+                  <Clock size={32} color="#5B6B60" />
+                  <Text className="text-sm font-semibold text-ink">No recent activity</Text>
+                  <Text className="text-center text-xs text-ink-muted">Delivery milestones and status updates will appear here in real time.</Text>
+                </Card>
+              ) : (
+                <View className="gap-2">
+                  {recentEvents.map((evt) => (
+                    <RecentEventRow key={evt.id} event={evt} />
+                  ))}
+                </View>
+              )}
+            </View>
           </>
         )}
       </ScrollView>
@@ -129,5 +171,58 @@ function RecentPackageRow({ pkg }: { pkg: Package }) {
       </View>
       <Badge label={STATUS_LABELS[pkg.status]} tone="muted" />
     </Pressable>
+  );
+}
+
+function RecentEventRow({ event }: { event: DeliveryEvent }) {
+  const formattedTime = event.occurred_at
+    ? new Date(event.occurred_at).toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
+  return (
+    <View className="rounded-card border border-border bg-white p-3">
+      <View className="flex-row items-center justify-between">
+        <Badge label={event.type.replace(/_/g, " ")} tone="info" />
+        <Text className="text-xs text-ink-muted">{formattedTime}</Text>
+      </View>
+
+      {event.message ? (
+        <Text className="mt-2 text-sm text-ink">{event.message}</Text>
+      ) : null}
+
+      {(event.package_id || event.vehicle_id) ? (
+        <View className="mt-2 flex-row flex-wrap gap-2 border-t border-border pt-2">
+          {event.package_id ? (
+            <Pressable
+              onPress={() => router.push(`/logistics/packages/${event.package_id}`)}
+              hitSlop={6}
+              className="flex-row items-center gap-1 rounded-pill bg-muted px-2 py-0.5"
+            >
+              <Tag size={12} color="#5B6B60" />
+              <Text className="text-[11px] font-medium text-ink-muted">
+                Package #{event.package_id.slice(0, 8)}
+              </Text>
+            </Pressable>
+          ) : null}
+          {event.vehicle_id ? (
+            <Pressable
+              onPress={() => router.push("/logistics/vehicles")}
+              hitSlop={6}
+              className="flex-row items-center gap-1 rounded-pill bg-muted px-2 py-0.5"
+            >
+              <Truck size={12} color="#5B6B60" />
+              <Text className="text-[11px] font-medium text-ink-muted">
+                Vehicle #{event.vehicle_id.slice(0, 8)}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
   );
 }

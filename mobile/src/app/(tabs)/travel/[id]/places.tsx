@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Star, MapPin } from "lucide-react-native";
 import { ApiError, listAttractions, listRestaurants, listStays, type TravelPlace } from "../../../../lib/api/travel";
 import { Card, ErrorState, LoadingSkeleton, ScreenHeader, StatusBadge } from "../../../../components/ui";
-import { fmtInr } from "../_shared";
+import { fmtInr } from "../../../../components/travel/shared";
 
 const CATEGORIES = [
   { id: "stay", label: "Stays" },

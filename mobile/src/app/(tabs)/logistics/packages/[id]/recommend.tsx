@@ -8,7 +8,7 @@ import { ArrowLeft, Award, Battery, Clock, Fuel, Gauge, Leaf, MapPin, Weight } f
 import { getPackage } from "../../../../../lib/api/packages";
 import { postRecommendations, type PackageRecommendation, type VehicleOption } from "../../../../../lib/api/recommendations";
 import { apiRequest, ApiError } from "../../../../../lib/api/client";
-import { Badge, Card, EmptyState, ErrorState, fmtMoney } from "../../../home/_components/ui";
+import { Badge, Card, EmptyState, ErrorState, fmtMoney } from "../../../../../components/home/ui";
 
 interface LocationRow {
   id: string;

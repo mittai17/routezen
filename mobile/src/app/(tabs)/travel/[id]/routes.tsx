@@ -3,7 +3,6 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import MapView, { Marker, Polyline } from "react-native-maps";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fuel, Leaf, MapPinned } from "lucide-react-native";
 import {
   ApiError,
@@ -13,8 +12,8 @@ import {
   getTrip,
   type RouteOption,
 } from "../../../../lib/api/travel";
-import { Button, Card, ErrorState, LoadingSkeleton, ScreenHeader, StatusBadge } from "../../../../components/ui";
-import { StatTile, fmtInr, fmtKm, fmtMin } from "../_shared";
+import { Button, Card, ErrorState, LoadingSkeleton, RouteZenMap, ScreenHeader, StatusBadge } from "../../../../components/ui";
+import { StatTile, fmtInr, fmtKm, fmtMin } from "../../../../components/travel/shared";
 
 type Objective = "balanced" | "fastest" | "cheapest" | "shortest" | "lowest_emissions";
 
@@ -59,7 +58,7 @@ function RouteMap({ route }: { route: RouteOption }) {
 
   return (
     <View className="h-48 overflow-hidden rounded-xl border border-border">
-      <MapView
+      <RouteZenMap
         style={{ flex: 1 }}
         initialRegion={{
           latitude: first.latitude,
@@ -67,11 +66,12 @@ function RouteMap({ route }: { route: RouteOption }) {
           latitudeDelta: Math.max(0.5, Math.abs(first.latitude - last.latitude) * 1.4),
           longitudeDelta: Math.max(0.5, Math.abs(first.longitude - last.longitude) * 1.4),
         }}
-      >
-        <Polyline coordinates={coords} strokeColor="#0E4429" strokeWidth={4} />
-        <Marker coordinate={first} pinColor="#1B6B3F" title="Start" />
-        <Marker coordinate={last} pinColor="#B3261E" title="End" />
-      </MapView>
+        polyline={coords}
+        markers={[
+          { id: "start", latitude: first.latitude, longitude: first.longitude, title: "Start", color: "#1B6B3F" },
+          { id: "end", latitude: last.latitude, longitude: last.longitude, title: "End", color: "#B3261E" },
+        ]}
+      />
     </View>
   );
 }

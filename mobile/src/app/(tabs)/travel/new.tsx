@@ -17,7 +17,7 @@ import {
   type CreateTripInput,
 } from "../../../lib/api/travel";
 import { Button, Card, ErrorState, FormField, ScreenHeader } from "../../../components/ui";
-import { TRAVEL_MODE_META, inputClassName } from "./_shared";
+import { TRAVEL_MODE_META, inputClassName } from "../../../components/travel/shared";
 
 // ── Popular-place lookup (client-side convenience only, same approach as the
 // web planner's POPULAR_CITIES table — there is no geocoding endpoint on the

@@ -35,7 +35,8 @@
         {
           "locationWhenInUsePermission": "RouteZen uses your location to recenter the map on your position. It is never used without you tapping \"Recenter\"."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "scheme": "routezen",
     "newArchEnabled": true
